@@ -24,7 +24,7 @@ def get_dashboard_info(robot_ip, command, port=29999):
     return response
 
 def main():
-    ROBOT_IP = "192.168.200.20"  # Change to your UR5's IP
+    ROBOT_IP = "192.168.200.10"  # Change to your UR5's IP
     RTDE_PORT = 30004            # Default RTDE port
 
     # Load RTDE configuration (ensure record_configuration.xml is set to output desired fields)
@@ -56,7 +56,9 @@ def main():
                 
                 # Print joint positions and robot mode code
                 print("Joint positions:", state.actual_q)
+                print("Tool pose:", state.actual_TCP_pose)
                 print("Robot mode (code):", state.robot_mode)
+                print("Joint Limit", )
                 
                 # Optionally, decode the robot_mode code using a lookup table if available.
                 # For example:

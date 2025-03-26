@@ -4,3 +4,4 @@ numpy==1.23.5
 matplotlib
 roboticstoolbox-python
 pandas
+ur-rtde
