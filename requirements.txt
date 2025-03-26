@@ -1,4 +1,6 @@
 rtde-2.7.2-release.zip
 opencv-python
-numpy
+numpy==1.23.5
 matplotlib
+roboticstoolbox-python
+pandas
