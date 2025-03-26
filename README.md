@@ -19,6 +19,8 @@ venv/Scripts/Activate.ps1
 > ```bash
 > venv/Scripts/Activate.ps1
 > ```
+> it shoud be like this
+> ![bash venv](./images/bash_venv.png)
 
 step 2 install requirements
 ```bash
