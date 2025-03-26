@@ -8,7 +8,7 @@ set-executionpolicy -Scope CurrentUser -ExecutionPolicy Unrestricted
 python -m venv venv
 venv/Scripts/Activate.ps1
 ```
-step2 install requirements
+step 2 install requirements
 ```bash
 pip3 install -r .\requirements.txt
 ```
