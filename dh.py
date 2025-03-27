@@ -3,6 +3,7 @@ import math
 import numpy as np
 import rtde.rtde as rtde
 import rtde.rtde_config as rtde_config
+import roboticstoolbox as rt
 from roboticstoolbox import models
 from spatialmath import SE3
 from spatialmath.base import angvec2tr
@@ -32,7 +33,7 @@ def axis_angle_to_transform(tcp_pose):
 
 def main():
     # RTDE connection parameters
-    ROBOT_IP = "192.168.200.10"  # Replace with your UR5's IP address
+    ROBOT_IP = "192.168.200.20"  # Replace with your UR5's IP address
     PORT = 30004                 # Default RTDE port for UR robots
 
     # Load the RTDE configuration (ensure your XML outputs joint angles & TCP pose)
@@ -46,12 +47,13 @@ def main():
     con.send_start()
 
     # Use the built-in UR5 model from the Robotics Toolbox for Python
+    # ur5e = rt.models.UR5e()
     ur5 = models.DH.UR5()
 
     # Example tool offset: Suppose the tool is 0.15 m along the Z-axis from the UR5 flange.
     # Adjust these values to match your actual tool geometry.
-    tool_offset = SE3(0, 0, 0.15)
-    ur5.tool = tool_offset  # Incorporate this offset into forward kinematics
+    # tool_offset = SE3(0, 0, 0.15)
+    # ur5.tool = tool_offset  # Incorporate this offset into forward kinematics
 
     print("Connected to UR5. Retrieving joint angles and computing forward kinematics...\n")
 

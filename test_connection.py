@@ -18,13 +18,14 @@ con.send_output_setup(output_names, output_types)
 con.send_start()
 
 try:
-    while True:
-        state = con.receive()
-        if state:
-            print("Joint positions:", state.actual_q)
-            print("Joint velocities:", state.actual_qd)
-            print("Joint currents:", state.actual_current)
-            print("Tool Accelerometer:", state.actual_TCP_force)
+
+    state = con.receive()
+    if state:
+        print("Joint positions:", state.actual_q)
+        print("Joint velocities:", state.actual_qd)
+        print("Joint currents:", state.actual_current)
+        print("Tool Accelerometer:", state.actual_TCP_force)
+        print("Tool Accelerometer:", state.actual_TCP_pose)
 except KeyboardInterrupt:
     print("Terminating connection...")
 finally:
