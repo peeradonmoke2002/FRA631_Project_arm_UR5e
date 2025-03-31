@@ -93,8 +93,8 @@ L6 = RevoluteDH(
 
 # Create the UR5e robot model
 UR5e = DHRobot([L1, L2, L3, L4, L5, L6], name='UR5e')
-# tool_offset = SE3(0, 0, 0.2)
-# UR5e.tool = tool_offset  # Incorporate this offset into forward kinematics
+tool_offset = SE3(0, 0, 0.2)
+UR5e.tool = tool_offset  # Incorporate this offset into forward kinematics
 
 # Print robot details and the current joint configuration
 print(UR5e)
@@ -104,16 +104,14 @@ print("Joint angles:", q)
 T = np.array(UR5e.fkine(q).A)
 print("End-effector pose (with tool offset):")
 print(T)
-# print(T.A)
 
-# # # Define a transformation matrix from the robot frame to the world frame
+# Define a transformation matrix from the robot frame to the world frame
 A = np.array([
-    [1, 0, 0, 0],
-    [0, 0, 1, -0.0575],
-    [0, -1, 0, 0.4],
+    [0, 1, 0, 0],
+    [0, 0, 1, 0.0575],
+    [1, 0, 0, 0.4],
     [0, 0, 0, 1]
 ])
-
 # # Compute the final transformation (world frame pose)
 result = T @ A
 print("End-effector pose in world frame:")
