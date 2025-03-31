@@ -3,7 +3,7 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 
-def estimate_transform_kabsch(source_pts: np.ndarray, target_pts: np.ndarray) -> (np.ndarray, np.ndarray):
+def estimate_transform_kabsch(source_pts: np.ndarray, target_pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Estimate the rigid transformation (rotation and translation) that maps
     source_pts (board points) to target_pts (3D image points) using the Kabsch algorithm.
