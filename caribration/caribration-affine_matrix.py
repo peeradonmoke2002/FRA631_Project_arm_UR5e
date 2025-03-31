@@ -1,50 +1,61 @@
+import csv
 import numpy as np
 import math
-from typing import List, Tuple, Optional
 from caribration_utility import Points3D, CalibrationData, Calibrator
+import os
 
-# Create a known transformation for synthetic testing.
-angle = math.radians(15)  # 15 degree rotation about Z axis
-R = np.array([[math.cos(angle), -math.sin(angle), 0],
-                [math.sin(angle),  math.cos(angle), 0],
-                [0,                0,               1]], dtype=np.float32)
-t = np.array([10, 20, 30], dtype=np.float32)
-true_affine = np.hstack([R, t.reshape(3, 1)])  # 3x4 matrix
-true_homogeneous = np.vstack([true_affine, np.array([0, 0, 0, 1], dtype=np.float32)])
+# Path to your CSV file
+filename = r"D:\work\Fibo-project\FRA631_Project_Dual_arm_UR5\caribration\data\test_data\data_calibration_2.csv"
+if not os.path.exists(filename):
+    raise FileNotFoundError(f"The file '{filename}' does not exist. Please check the path.")
 
-# Generate synthetic calibration data.
 calibration_data_list = []
-num_points = 36
-np.random.seed(42)
-for i in range(num_points):
-    # Generate a random source (CCS) point.
-    x, y, z = np.random.uniform(0, 100, 3)
-    source_pt = Points3D(x, y, z)
-    # Transform the source point to get the target (AC) point.
-    homo_pt = np.array([x, y, z, 1], dtype=np.float32)
-    transformed = true_homogeneous @ homo_pt
-    target_pt = Points3D(transformed[0], transformed[1], transformed[2])
-    # Create a CalibrationData instance.
-    calib_data = CalibrationData(pos=i, CCS=source_pt, AC=target_pt)
-    calibration_data_list.append(calib_data)
 
-# Create an instance of the Calibrator class.
+with open(filename, 'r', newline='', encoding="utf-8-sig") as csvfile:
+    reader = csv.DictReader(csvfile)
+    # Strip extra whitespace from header keys
+    reader.fieldnames = [field.strip() for field in reader.fieldnames]
+    print("Detected header keys:", reader.fieldnames)
+    
+    for row in reader:
+        # Ensure the header names match your CSV.
+        pos = int(row["Pos"])
+        ccs_x = float(row["ccs_x"])
+        ccs_y = float(row["ccs_y"])
+        ccs_z = float(row["ccs_z"])
+        ac_x  = float(row["ac_x"])
+        ac_y  = float(row["ac_y"])
+        ac_z  = float(row["ac_z"])
+        
+        # Create Points3D objects for both coordinate systems.
+        ccs_point = Points3D(ccs_x, ccs_y, ccs_z)
+        ac_point  = Points3D(ac_x, ac_y, ac_z)
+        
+        # Create a CalibrationData instance and add it to the list.
+        calib_data = CalibrationData(pos, ccs_point, ac_point)
+        calibration_data_list.append(calib_data)
+
+print(f"Loaded {len(calibration_data_list)} calibration data points.")
+
+# Create an instance of the Calibrator class using the loaded data.
 calibrator = Calibrator(calibration_data_list)
 
-# Run the calibration search.
-num_selected_positions = 36  # Minimal number needed for affine estimation.
+# Set calibration parameters.
+num_selected_positions = len(calibration_data_list)  # using all loaded data points
 num_iterations = 20000
-target_rms_error = 0.1  # Set your desired threshold.
+target_rms_error = 0.2  # Adjust threshold as needed
 
+# Run the calibration search.
 best_matrix, best_rms, rms_errors, selected_positions, transformed_points = calibrator.find_best_matrix(
     num_selected_positions, num_iterations, target_rms_error
 )
 
+# Output the results.
 if best_matrix is not None:
     print("Best Transformation Matrix (4x4):")
     print(best_matrix)
-    print("Best Overall RMS Error:", np.round(best_rms,3))
-    print("RMS Errors (X, Y, Z, Overall):", np.round(rms_errors,3))
+    print("Best Overall RMS Error:", np.round(best_rms, 3))
+    print("RMS Errors (X, Y, Z, Overall):", np.round(rms_errors, 3))
     print("Selected Positions Indices:", selected_positions)
 else:
     print("Failed to estimate a valid transformation.")
