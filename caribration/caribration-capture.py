@@ -44,7 +44,7 @@ print("Camera intrinsics:", intrinsics)
 img_height, img_width = color_image.shape[:2]
 
 # Load the ArUco dictionary and create detector parameters
-aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_1000)
+aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 parameters = cv2.aruco.DetectorParameters()
 
 # Create the ArUco detector

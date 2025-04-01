@@ -6,7 +6,7 @@ import time  # Import time module for sleep
 # Configure and start the RealSense pipeline
 pipeline = rs.pipeline()
 config = rs.config()
-config.enable_stream(rs.stream.depth, 640, 480, rs.format.z32, 30)
+config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
 config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
 profile = pipeline.start(config)
 
@@ -33,7 +33,7 @@ intrinsics = color_frame.profile.as_video_stream_profile().intrinsics
 print("Camera intrinsics:", intrinsics)
 
 # Load the ArUco dictionary and create detector parameters
-aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_1000)
+aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 parameters = cv2.aruco.DetectorParameters()
 
 # Create the ArUco detector
