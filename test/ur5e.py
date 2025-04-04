@@ -1,30 +1,11 @@
 import numpy as np
 from roboticstoolbox import DHRobot, RevoluteDH
 from spatialmath import SE3
-import time
-import math
-import rtde.rtde as rtde
-import rtde.rtde_config as rtde_config
-import roboticstoolbox as rt
 from roboticstoolbox import models
 from spatialmath.base import angvec2tr
 
-ROBOT_IP = "192.168.200.10"  # Replace with your UR5's IP address
-PORT = 30004                 # Default RTDE port for UR robots
 
-# Load the RTDE configuration (ensure your XML outputs joint angles & TCP pose)
-conf = rtde_config.ConfigFile("./RTDE_Python_Client_Library/examples/record_configuration.xml")
-output_names, output_types = conf.get_recipe("out")
-
-# Establish RTDE connection to the UR5
-con = rtde.RTDE(ROBOT_IP, PORT)
-con.connect()
-con.send_output_setup(output_names, output_types)
-con.send_start()
-state = con.receive()
-q = state.actual_q  # Retrieve the current joint angles
-
-# Define the robot links using DH parameters
+q=[0, 0, 0, 0, 0, 0]  # Example joint angles in radians
 
 # Link 1
 L1 = RevoluteDH(

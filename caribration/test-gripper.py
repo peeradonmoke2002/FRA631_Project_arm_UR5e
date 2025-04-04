@@ -1,5 +1,6 @@
 import time
-import gripper
+from classrobot import gripper
+
 
 _GRIPPER_LEFT_ = gripper.MyGripper3Finger()
 
