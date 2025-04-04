@@ -1,4 +1,4 @@
-# FRA631_Project_Dual_arm_UR5
+# FRA631 Project Dual arm UR5
 ## UR5 Information
 
 | Arm       | IP Address       |
