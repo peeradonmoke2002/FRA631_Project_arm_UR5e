@@ -27,3 +27,12 @@ step 2 install requirements
 ```bash
 pip3 install -r .\requirements.txt
 ```
+
+
+## Note
+For update submodules
+
+```bash
+git submodule update --remote
+```
+
