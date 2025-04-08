@@ -12,8 +12,8 @@ class calibrationUR5e():
         self.TEST2 = [0.8011561071792352, 0.08430097586065964, 0.1721584901349059, -1.73183931957943, 0.6868204659244422, -1.7312337199195151]
         self.HOME_POS2 = [25.35, -124.37, -95, -139.88, -66, 135.7]
         self.robot_ip = "192.168.200.10"
-        self.speed = 0.1
-        self.acceleration = 1.2
+        self.speed = 0.05
+        self.acceleration = 0.5
         # Initialize the robot connection once.
         self.robot = robot_movement.RobotControl()
         self.robot.robot_release()
