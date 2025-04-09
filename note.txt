@@ -1,0 +1,21 @@
+bool speedJ(const std::vector<double> &qd, double acceleration = 0.5, double time = 0.0)¶
+Joint speed - Accelerate linearly in joint space and continue with constant joint speed.
+
+Parameters:
+qd – joint speeds [rad/s]
+
+acceleration – joint acceleration [rad/s^2] (of leading axis)
+
+time – time [s] before the function returns (optional)
+
+bool speedL(const std::vector<double> &xd, double acceleration = 0.25, double time = 0.0)¶
+Tool speed - Accelerate linearly in Cartesian space and continue with constant tool speed.
+
+The time t is optional;
+
+Parameters:
+xd – tool speed [m/s] (spatial vector)
+
+acceleration – tool position acceleration [m/s^2]
+
+time – time [s] before the function returns (optional)
