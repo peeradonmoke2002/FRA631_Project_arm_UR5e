@@ -9,7 +9,7 @@ import sys
 from scipy.spatial.transform import Rotation as R
 import math 
 
-config_path = pathlib.Path(__file__).parent / "FRA631_Project_Dual_arm_UR5_Calibration/caribration/config/cam.json"
+config_path = pathlib.Path(__file__).parent.parent / "FRA631_Project_Dual_arm_UR5_Calibration/caribration/config/cam.json"
 print("Loading camera configuration from:", config_path)
 jsonObj = json.load(open(config_path))
 json_string = str(jsonObj).replace("'", '\"')
