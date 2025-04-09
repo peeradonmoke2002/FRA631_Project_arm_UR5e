@@ -4,11 +4,13 @@ import numpy as np
 import math
 from .point3d import Point3D
 import json
-import os
+import pathlib
+import sys
 from scipy.spatial.transform import Rotation as R
-import math # Math library
+import math 
 
-config_path = os.path.join(os.path.dirname(__file__), "..", "config", "cam.json")
+config_path = pathlib.Path(__file__).parent / "FRA631_Project_Dual_arm_UR5_Calibration/caribration/config/cam.json"
+print("Loading camera configuration from:", config_path)
 jsonObj = json.load(open(config_path))
 json_string = str(jsonObj).replace("'", '\"')
 
@@ -150,6 +152,64 @@ class RealsenseCam:
         return camera_matrix, dist_coeffs
 
 
+    def get_all_board_pose(self, aruco_dict):
+        """
+        Detects Aruco markers in the color image, computes the center pixel of each marker,
+        deprojects the center pixel using RealSense depth data to obtain a 3D point, and returns
+        a list of markers with their IDs and corresponding 3D positions.
+        
+        Returns:
+        - output_image: The color image with detected markers and center points drawn.
+        - marker_points: A list of dictionaries. Each dictionary contains:
+                {"id": marker_id, "point": Point3D(...)}
+        """
+        color_image, depth_frame, depth_intrinsics = self.get_color_and_depth_frames()
+        if color_image is None or depth_frame is None:
+            print("Failed to capture color/depth.")
+            return None, []
+        
+        gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+        parameters = cv2.aruco.DetectorParameters()
+        detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+        corners, ids, rejected = detector.detectMarkers(gray)
+        output_image = color_image.copy()
+
+        marker_points = []
+        
+        if ids is not None and len(ids) > 0:
+            # Draw detected markers on the image.
+            cv2.aruco.drawDetectedMarkers(output_image, corners, ids)
+            
+            # Process each detected marker.
+            for i in range(len(ids)):
+                c = corners[i][0]  # corners for marker i; shape (4,2)
+                cx = int(np.mean(c[:, 0]))
+                cy = int(np.mean(c[:, 1]))
+                # Draw the center for visualization.
+                cv2.circle(output_image, (cx, cy), 4, (0, 0, 255), -1)
+                
+                # Get depth at the marker center.
+                depth = depth_frame.get_distance(cx, cy)
+                if depth > 0:
+                    point_coords = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [cx, cy], depth)
+                    # Depending on your coordinate conventions, you may adjust the axes.
+                    x = point_coords[0]
+                    y = -point_coords[1]
+                    z = -point_coords[2]
+                    point3d = Point3D(x, y, z)
+                else:
+                    print(f"Invalid depth at marker {i} (pixel: {cx},{cy}).")
+                    point3d = Point3D(0, 0, 0)
+                
+                # Extract the marker id.
+                marker_id = int(ids[i][0])
+                marker_points.append({"id": marker_id, "point": point3d})
+                # print(f"Marker id {marker_id} at pixel ({cx}, {cy}) -> 3D: {point3d}")
+                
+            return output_image, marker_points
+        else:
+            print("No markers detected.")
+            return output_image, []
 
 
     def get_board_pose(self, aruco_dict):
