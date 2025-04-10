@@ -50,15 +50,12 @@ class RobotControl:
         """Return the current TCP offset."""
         return self._ROBOT_CON_.getTCPOffset()
     
-    def robot_get_fk(self, q, tcp_offset):
-        """
-        Return forward kinematics using provided joint positions and TCP offset.
-        If either q is empty or tcp_offset is None, call the default FK.
-        """
-        if q and tcp_offset is not None:
+    def robot_get_fk(self, q: Optional[List[float]] = None, tcp_offset: Optional[List[float]] = None):
+         if q is None and tcp_offset is None:
+             return self._ROBOT_RECV_.getForwardKinematics()
+         else:
             return self._ROBOT_RECV_.getForwardKinematics(q, tcp_offset)
-        else:
-            return self._ROBOT_RECV_.getForwardKinematics()
+
 
     def robot_get_ik(self, 
                      x: List[float], 
@@ -115,6 +112,18 @@ class RobotControl:
     def robot_moveL_stop(self, a=10.0, asynchronous=False) -> None:
         """Stop linear movement."""
         self._ROBOT_CON_.stopL(a, asynchronous)
+
+    def robot_speed_J(self, velocity: list, acceleration: float, time: Optional[float] = None) -> None:
+        """Set joint velocity.
+        qd - joint speeds [rad/s]
+        acceleration - joint acceleration [rad/s^2] (of leading axis)
+        time - time [s] before the function returns (optional)
+        """
+        if time is not None:
+            self._ROBOT_CON_.speedJ(velocity, acceleration, time)
+        else:
+            self._ROBOT_CON_.speedJ(velocity, acceleration)
+
 
 
     def my_convert_position_from_left_to_avatar(self,position: list[float]) -> list[float]:
