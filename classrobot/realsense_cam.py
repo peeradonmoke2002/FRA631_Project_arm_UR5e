@@ -194,8 +194,8 @@ class RealsenseCam:
                     point_coords = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [cx, cy], depth)
                     # Depending on your coordinate conventions, you may adjust the axes.
                     x = point_coords[0]
-                    y = -point_coords[1]
-                    z = -point_coords[2]
+                    y = point_coords[1]
+                    z = point_coords[2]
                     point3d = Point3D(x, y, z)
                 else:
                     print(f"Invalid depth at marker {i} (pixel: {cx},{cy}).")
@@ -249,8 +249,8 @@ class RealsenseCam:
                 # y = -point_coords[1]
                 # z = -point_coords[2]
                 x = point_coords[0]
-                y = -point_coords[1]
-                z = -point_coords[2]
+                y = point_coords[1]
+                z = point_coords[2]
                 point3d = Point3D(x, y, z)
                 print(f"Detected board center at: {point3d}")
                 return output_image, point3d
