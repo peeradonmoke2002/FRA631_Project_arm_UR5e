@@ -477,11 +477,6 @@ class RealsenseCam:
             return None, None
 
 
-
-
-
-
-
     def stop(self):
         """
         Stop the RealSense pipeline.
