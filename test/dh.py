@@ -1,85 +1,66 @@
-import time
-import math
 import numpy as np
-import rtde.rtde as rtde
-import rtde.rtde_config as rtde_config
-import roboticstoolbox as rt
-from roboticstoolbox import models
+import roboticstoolbox as rtb
 from spatialmath import SE3
-from spatialmath.base import angvec2tr
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # สำหรับการ plot 3D
+import rtde_receive
+# ================= UR5e Forward Kinematics =================
+L1 = rtb.RevoluteDH(d=0.1625, a=0,       alpha=np.pi/2)
+L2 = rtb.RevoluteDH(d=0,      a=-0.425,  alpha=0)
+L3 = rtb.RevoluteDH(d=0,      a=-0.3922, alpha=0)
+L4 = rtb.RevoluteDH(d=0.1333, a=0,       alpha=np.pi/2)
+L5 = rtb.RevoluteDH(d=0.0997, a=0,       alpha=-np.pi/2)
+L6 = rtb.RevoluteDH(d=0.0996, a=0,       alpha=0)
 
-def axis_angle_to_transform(tcp_pose):
-    """
-    Convert a UR axis-angle TCP pose to a 4x4 transformation matrix.
-    UR TCP pose is [x, y, z, Rx, Ry, Rz], where (Rx, Ry, Rz) is axis-angle.
-    """
-    x, y, z, Rx, Ry, Rz = tcp_pose
-    angle = np.linalg.norm([Rx, Ry, Rz])
-    
-    # Build the rotation matrix from axis-angle
-    if angle < 1e-12:
-        # Very small angle => no rotation
-        rot_mat = np.eye(4)
-    else:
-        axis = [Rx/angle, Ry/angle, Rz/angle]
-        rot_mat = angvec2tr(angle, axis)
-    
-    # Set the translation part
-    rot_mat[0, 3] = x
-    rot_mat[1, 3] = y
-    rot_mat[2, 3] = z
-    
-    return rot_mat
+robot = rtb.DHRobot([L1, L2, L3, L4, L5, L6], name='UR5e')
 
-def main():
-    # RTDE connection parameters
-    ROBOT_IP = "192.168.200.20"  # Replace with your UR5's IP address
-    PORT = 30004                 # Default RTDE port for UR robots
 
-    # Load the RTDE configuration (ensure your XML outputs joint angles & TCP pose)
-    conf = rtde_config.ConfigFile("./RTDE_Python_Client_Library/examples/record_configuration.xml")
-    output_names, output_types = conf.get_recipe("out")
+# robot_ip = "192.168.200.10"
+# rtde_r = rtde_receive.RTDEReceiveInterface(robot_ip, 30004)
 
-    # Establish RTDE connection to the UR5
-    con = rtde.RTDE(ROBOT_IP, PORT)
-    con.connect()
-    con.send_output_setup(output_names, output_types)
-    con.send_start()
 
-    # Use the built-in UR5 model from the Robotics Toolbox for Python
-    # ur5e = rt.models.UR5e()
-    ur5 = models.DH.UR5()
+# define joint angles from teach pendant degree
 
-    # Example tool offset: Suppose the tool is 0.15 m along the Z-axis from the UR5 flange.
-    # Adjust these values to match your actual tool geometry.
-    # tool_offset = SE3(0, 0, 0.15)
-    # ur5.tool = tool_offset  # Incorporate this offset into forward kinematics
+# joint_deg = rtde_r.getActualQ()
+# q = np.array(rtde_r.getActualQ())
+q =  [0.7197909355163574, -1.9388791523375453, -2.0522477626800537, -2.2783595524229945, -0.8750937620746058, 2.3630921840667725]
 
-    print("Connected to UR5. Retrieving joint angles and computing forward kinematics...\n")
 
-    # Receive one state from the RTDE
-    state = con.receive()
-    if state:
-        # 1) Joint angles (in radians)
-        q = state.actual_q
-        print("Joint angles:", q)
+# calculate forward kinematics (flange pose) in robot base frame
+T_fk = robot.fkine(q)
 
-        # 2) Robot-reported TCP pose ([x, y, z, Rx, Ry, Rz] in axis-angle)
-        tcp_pose = state.actual_TCP_pose
-        print("Robot-reported TCP pose (axis-angle):", tcp_pose)
+# set tool offset: translate 200 mm by z from flange frame
+T_tool = SE3(0, 0, 0.200)  # 0.200 m = 200 mm
 
-        # Convert to a 4x4 transformation matrix
-        T_robot_reported = axis_angle_to_transform(tcp_pose)
-        print("\nRobot-reported Transformation Matrix (Base to TCP):")
-        print(T_robot_reported)
+# calculate TCP pose (flange + tool offset) in robot base frame
+T_TCP = T_fk * T_tool
 
-        # 3) Compute forward kinematics with tool offset included
-        T_dh = ur5.fkine(q)  # This now includes the tool transform (ur5.tool)
-        print("\nDH-based FK (with tool offset) from joint angles:")
-        print(T_dh)
+# convert orientation from RPY radians to degrees
+rpy_tcp = np.degrees(T_TCP.rpy())
 
-    # Cleanup
-    con.disconnect()
+print("=== TCP Pose in Robot Base Frame ===")
+print("Transformation Matrix:")
+print(T_TCP)
+print("\nOrientation (RPY in degrees):")
+print(f"Roll:  {rpy_tcp[0]:.3f}°")
+print(f"Pitch: {rpy_tcp[1]:.3f}°")
+print(f"Yaw:   {rpy_tcp[2]:.3f}°")
 
-if __name__ == "__main__":
-    main()
+# ================= World Frame Transformation =================
+
+
+T_world = SE3(0, 0.4, -0.0575) * SE3.Rx(np.deg2rad(90)) * SE3.Ry(0) * SE3.Rz(0)
+
+T_inv = T_world.inv()
+T_TCP_world = T_inv * T_TCP
+
+rpy_tcp_world = np.degrees(T_TCP_world.rpy())
+
+print("\n=== TCP Pose in World Frame ===")
+print("Transformation Matrix:")
+print(T_TCP_world)
+print("\nOrientation (RPY in degrees):")
+print(f"Roll:  {rpy_tcp_world[0]:.3f}°")
+print(f"Pitch: {rpy_tcp_world[1]:.3f}°")
+print(f"Yaw:   {rpy_tcp_world[2]:.3f}°")
+
