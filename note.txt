@@ -19,3 +19,55 @@ xd – tool speed [m/s] (spatial vector)
 acceleration – tool position acceleration [m/s^2]
 
 time – time [s] before the function returns (optional)
+
+
+
+    # def move_muti_to_object(self):
+    #     """
+    #     Moves the robot to the specified object position in the camera coordinate system.
+    #     """
+
+    #     if self.best_matrix is None:
+    #         print("Failed to load transformation matrix.")
+    #         return
+        
+    #     maker_point = self.cam_relasense()
+    #     print(maker_point)
+    #     transfrom_point = self.transform_marker_points(maker_point, self.best_matrix)
+    #     print(transfrom_point)
+    #     # Sort the markers by their id in ascending order.
+    #     sorted_markers = sorted(transfrom_point, key=lambda m: m["id"])
+    
+
+    #     for marker in sorted_markers:
+    #         marker_id = marker["id"]
+    #         point = marker["point"]  # This is an instance of Point3D.
+    #         target_pose_up = [point.x+0.05, point.y-0.10, point.z] + self.Test_RPY
+    #         target_pose_down = [point.x+0.05, point.y, point.z] + self.Test_RPY
+    #         print(f"Moving to marker ID {marker_id} at position {target_pose_up}")
+            
+    #         # Call your robot move function.
+    #         # up over the object
+    #         self.robot.robot_moveL(target_pose_up, self.speed)
+    #         time.sleep(3)
+    #         # down to the object
+    #         self.robot.robot_moveL(target_pose_down, self.speed)
+    #         # gripper close
+    #         self.close_gripper()
+    #         time.sleep(3)
+    #         # back to home position
+    #         self.move_home()
+    #         time.sleep(3)
+    #         # up over the object
+    #         self.robot.robot_moveL(target_pose_up, self.speed)
+    #         time.sleep(3)
+    #         # down to the object
+    #         self.robot.robot_moveL(target_pose_down, self.speed)
+    #         # gripper open
+    #         self.open_gripper()
+    #         time.sleep(3)
+    #         # back to home position
+    #         self.move_home()
+    #         time.sleep(3)
+    #         # done :)
+    #         print(f"Completed move to marker ID {marker_id}")

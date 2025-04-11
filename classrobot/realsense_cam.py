@@ -1,519 +1,462 @@
-import pyrealsense2 as rs
-import cv2
-import numpy as np
-import math
-from .point3d import Point3D
-import json
-import pathlib
-import sys
-from scipy.spatial.transform import Rotation as R
-import math 
+#!/usr/bin/env python3
+"""
+move2object.py
 
-config_path = pathlib.Path(__file__).parent.parent / "FRA631_Project_Dual_arm_UR5_Calibration/caribration/config/cam.json"
-print("Loading camera configuration from:", config_path)
-jsonObj = json.load(open(config_path))
-json_string = str(jsonObj).replace("'", '\"')
-
-
-
-class RealsenseCam:
-    def __init__(self, width: int = 640, height: int = 480, fps: int = 30):
-        self.width = width
-        self.height = height
-        self.fps = fps
-        self.pipeline = None
-        self.config = None
-        self.profile = None
-        self.align = None
-        self.align_depth = None 
-        self.imu_pipe = None
-        self.imu_config = None
-        self.init_cam()
-        print("RealsenseCam initialized with width: {}, height: {}, fps: {}".format(width, height, fps))
+This module controls a simulated robot and gripper to pick and place objects 
+based on transformed marker points. The module loads a calibration matrix,
+obtains marker positions (from test data in this simulation), transforms them, 
+and uses a Behavior Tree to process overlapped markers first and then sorted markers.
+The simulated robot “moves” by printing commands.
   
-    def init_cam(self):
+Author: Your Name
+Date: YYYY-MM-DD
+"""
+
+import time
+import cv2 as cv
+import sys
+import pathlib
+import numpy as np
+import json
+import math
+from scipy.spatial.transform import Rotation as R
+
+# Add parent directory to sys.path so modules can be imported
+sys.path.append(str(pathlib.Path(__file__).parent.parent))
+
+from classrobot import robot_movement, realsense_cam, gripper
+from classrobot.point3d import Point3D
+
+
+# ========================================
+# Behavior Tree Framework (Simple Implementation)
+# ========================================
+
+SUCCESS = 1
+FAILURE = 0
+RUNNING = 2
+
+class BehaviorNode:
+    def tick(self):
+        raise NotImplementedError("tick() must be implemented by subclass.")
+
+class SequenceNode(BehaviorNode):
+    def __init__(self, children):
+        self.children = children
+
+    def tick(self):
+        for child in self.children:
+            status = child.tick()
+            if status != SUCCESS:
+                return status
+        return SUCCESS
+
+class SelectorNode(BehaviorNode):
+    def __init__(self, children):
+        self.children = children
+
+    def tick(self):
+        for child in self.children:
+            status = child.tick()
+            if status == SUCCESS:
+                return SUCCESS
+        return FAILURE
+
+class ConditionNode(BehaviorNode):
+    def __init__(self, condition_func):
+        self.condition_func = condition_func
+
+    def tick(self):
+        if self.condition_func():
+            return SUCCESS
+        else:
+            return FAILURE
+
+class ActionNode(BehaviorNode):
+    def __init__(self, action_func):
+        self.action_func = action_func
+
+    def tick(self):
+        return self.action_func()
+
+
+# ========================================
+# Simulated Move2Object Class with Behavior Tree Integration
+# ========================================
+
+class Move2Object:
+    """
+    Class to move the robot to pick and place objects based on detected markers.
+    """
+    def __init__(self):
+        # Define home position and other fixed parameters
+        self.HOME_POS = [
+            0.701172053107018, 0.184272460738082, 0.1721568294843568,
+            -1.7318488600590023, 0.686830145115122, -1.731258978679887
+        ]
+        self.robot_ip = "172.17.0.2"
+        self.speed = 0.1
+        self.acceleration = 1.2
+
+        # Fixed Y value and test roll-pitch-yaw for object approach
+        self.FIX_Y = 0.18427318897339476
+        self.RPY = [-1.7318443587261685, 0.686842056802218, -1.7312759524010408]
+        self.Test_RPY = [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+
+        # Overlap threshold (adjustable)
+        self.overlap_threshold = 0.05
+
+        # Load transformation matrix from JSON calibration file
+        self.config_matrix_path = pathlib.Path(__file__).parent / (
+            "FRA631_Project_Dual_arm_UR5_Calibration/caribration/config/best_matrix.json"
+        )
+        self.best_matrix = self.load_matrix()
+
+        # Initialize robot and gripper connections (simulation version)
+        self.robot = robot_movement.RobotControl()
+        self.robot.robot_release()
+        self.robot.robot_init(self.robot_ip)
+        self.cam = realsense_cam.RealsenseCam()
+        self._GRIPPER_LEFT_ = gripper.MyGripper3Finger()
+        self.init_gripper()
+
+        # Build the behavior tree.
+        self.build_behavior_tree()
+
+    def init_gripper(self):
         """
-        Initialize the RealSense camera pipeline with color, depth, and motion streams.
-        This method is called in the constructor.
+        Initialize and test the gripper.
+        """
+        host = "192.168.200.11"  # Replace with your gripper's IP address
+        port = 502  # Default Modbus TCP port
+        print(f"Connecting to 3-Finger gripper at {host}:{port}...", end=" ")
+        res = self._GRIPPER_LEFT_.my_init(host=host, port=port)
+        if res:
+            print("[SUCCESS]")
+        else:
+            print("[FAILURE]")
+            self._GRIPPER_LEFT_.my_release()
+            exit()
+        time.sleep(0.6)
+        print("Testing gripper...", end=" ")
+        self.close_gripper()
+        time.sleep(2)
+        self.open_gripper()
+        time.sleep(2)
+
+    def stop_all(self):
+        """Release robot, camera, and gripper resources."""
+        self.robot.robot_release()
+        self.cam.stop()
+        self._GRIPPER_LEFT_.my_release()
+
+    def close_gripper(self):
+        """Close the gripper."""
+        time.sleep(0.6)
+        print("Closing gripper...")
+        self._GRIPPER_LEFT_.my_hand_close()
+        time.sleep(2)
+
+    def open_gripper(self):
+        """Open the gripper."""
+        print("Opening gripper...")
+        time.sleep(0.6)
+        self._GRIPPER_LEFT_.my_hand_open()
+        time.sleep(2)
+
+    def cam_realsense(self):
+        """
+        Capture board pose using the RealSense camera.
+        In the real system, this would capture and detect markers.
+        Here it is meant to be overridden in simulation.
+        Returns:
+            List of marker dictionaries with keys "id" and "point" (Point3D).
+        """
+        raise NotImplementedError("cam_realsense() should be overridden for simulation.")
+
+    def load_matrix(self):
+        """
+        Load the transformation matrix from a JSON file.
+        Returns:
+            best_matrix (numpy.array): 4x4 transformation matrix.
         """
         try:
-            self.pipeline = rs.pipeline()
-            self.config = rs.config()
-            self.imu_pipe = rs.pipeline()
-            self.imu_config = rs.config()
-
-            if self.pipeline is None or self.config is None:
-                raise RuntimeError("Failed to create RealSense pipeline or config.")
-
-            # Enable color and depth streams before starting the pipeline.
-            self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
-            self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
-            
-            # Enable motion streams without specifying fps; device defaults will be used.
-            self.imu_config.enable_stream(rs.stream.gyro)
-            self.imu_config.enable_stream(rs.stream.accel)
-
-            # Start the pipeline and get the profile.
-            self.profile = self.pipeline.start(self.config)
-            self.imu_pipe.start(self.imu_config)
-
-            # Align depth to color.
-            self.align = rs.align(rs.stream.color)
-            self.align_depth = rs.align(rs.stream.depth)
-
-            # Get device and enable advanced mode.
-            dev = self.profile.get_device()
-            if not dev:
-                raise RuntimeError("Failed to get RealSense device.")
-
-            advnc_mode = rs.rs400_advanced_mode(dev)
-            if not advnc_mode.is_enabled():
-                print("Enabling advanced mode...")
-                advnc_mode.toggle_advanced_mode(True)
-
-            # Load settings from config JSON.
-            advnc_mode.load_json(json_string)
-
-            print(f"RealSense camera started with aligned color and depth streams "
-                f"({self.width}x{self.height}@{self.fps}fps)")
-        except Exception as e:
-            print(f"[ERROR] Failed to initialize RealSense camera: {e}")
-            raise  # Or use sys.exit(1) if running as a standalone script
-
-
-    def get_color_frame(self) -> np.ndarray:
-        frames = self.pipeline.wait_for_frames()
-        aligned_frames = self.align.process(frames)
-        color_frame = aligned_frames.get_color_frame()
-        if not color_frame:
+            with open(self.config_matrix_path, 'r') as f:
+                loaded_data = json.load(f)
+                best_matrix = np.array(loaded_data["matrix"])
+                return best_matrix
+        except FileNotFoundError:
+            print("Transformation matrix file not found.")
             return None
-        image = np.asanyarray(color_frame.get_data())
-        return image
 
-    def get_depth_frame(self):
-        frames = self.pipeline.wait_for_frames()
-        aligned_frames = self.align.process(frames)
-        depth_frame = aligned_frames.get_depth_frame()
-        if not depth_frame:
-            return None
-        # Return the depth frame (do not convert to numpy array so get_distance() remains available)
-        return depth_frame
-
-    def get_color_and_depth_frames(self) -> tuple:
-        frames = self.pipeline.wait_for_frames()
-        aligned_frames = self.align.process(frames)
-        color_frame = aligned_frames.get_color_frame()
-        depth_frame = aligned_frames.get_depth_frame()
-        if not color_frame or not depth_frame:
-            return None, None, None
-        
-        # Get intrinsics from the depth stream.
-        depth_intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
-        color_image = np.asanyarray(color_frame.get_data())
-        # Return the color image, the raw depth frame, and the intrinsics.
-        return color_image, depth_frame, depth_intrinsics
-
-
-    def get_color_intrinsics(self, depth_intrinsics) -> tuple:
+    def get_robot_TCP(self):
         """
-        Retrieve the color camera's intrinsic matrix and distortion coefficients.
-
+        Get current robot TCP (Tool Center Point) position.
         Returns:
-            camera_matrix (np.ndarray): 3x3 intrinsic matrix.
-            dist_coeffs (np.ndarray): Distortion coefficients array.
+            pos_3d (list): [x, y, z] position.
         """
-        # Reuse our get_color_and_depth_frames to get the intrinsics
+        pos = self.robot.robot_get_position()
+        pos_3d = self.robot.convert_gripper_to_maker(pos)
+        print("Robot TCP position:", pos_3d)
+        return pos_3d
+
+    def move_home(self):
+        """Move the robot to its home position."""
+        print("Moving to home position...")
+        self.robot.robot_moveL(self.HOME_POS, self.speed)
+
+    def transform_marker_points(self, marker_points, transformation_matrix):
+        """
+        Apply a transformation matrix to a list of marker points.
         
-        if depth_intrinsics is None:
-            return None, None
-        # Build the 3x3 camera matrix from the intrinsics.
-        camera_matrix = np.array([[depth_intrinsics.fx, 0, depth_intrinsics.ppx],
-                                  [0, depth_intrinsics.fy, depth_intrinsics.ppy],
-                                  [0, 0, 1]], dtype=np.float32)
-        # Get the distortion coefficients.
-        dist_coeffs = np.array(depth_intrinsics.coeffs, dtype=np.float32)
-        return camera_matrix, dist_coeffs
-
-    def get_depth_intrinsics(self, depth_frame) -> tuple:
-        """
-        Retrieve the depth camera's intrinsic matrix and distortion coefficients.
-
-        Returns:
-            camera_matrix (np.ndarray): 3x3 intrinsic matrix.
-            dist_coeffs (np.ndarray): Distortion coefficients array.
-        """
-        if not depth_frame:
-            return None, None
-        depth_intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
-        camera_matrix = np.array([[depth_intrinsics.fx, 0, depth_intrinsics.ppx],
-                                  [0, depth_intrinsics.fy, depth_intrinsics.ppy],
-                                  [0, 0, 1]], dtype=np.float32)
-        dist_coeffs = np.array(depth_intrinsics.coeffs, dtype=np.float32)
-        return camera_matrix, dist_coeffs
-
-
-    def get_all_board_pose(self, aruco_dict):
-        """
-        Detects Aruco markers in the color image, computes the center pixel of each marker,
-        deprojects the center pixel using RealSense depth data to obtain a 3D point, and returns
-        a list of markers with their IDs and corresponding 3D positions.
+        Args:
+            marker_points (list): List of dicts, each in the format {"id": <marker_id>, "point": Point3D}.
+            transformation_matrix (numpy.array): 4x4 transformation matrix.
         
         Returns:
-        - output_image: The color image with detected markers and center points drawn.
-        - marker_points: A list of dictionaries. Each dictionary contains:
-                {"id": marker_id, "point": Point3D(...)}
+            transformed_points (list): List of dicts with transformed "point" as a Point3D.
         """
-        color_image, depth_frame, depth_intrinsics = self.get_color_and_depth_frames()
-        if color_image is None or depth_frame is None:
-            print("Failed to capture color/depth.")
-            return None, []
-        
-        gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        parameters = cv2.aruco.DetectorParameters()
-        detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
-        corners, ids, rejected = detector.detectMarkers(gray)
-        output_image = color_image.copy()
+        transformed_points = []
+        for marker in marker_points:
+            marker_id = marker["id"]
+            pt = marker["point"]
+            homo_pt = np.array([pt.x, pt.y, pt.z, 1], dtype=np.float32).reshape(4, 1)
+            transformed_homo = transformation_matrix @ homo_pt
+            transformed_pt = transformed_homo[:3, 0] / transformed_homo[3, 0]
+            transformed_point = Point3D(transformed_pt[0], transformed_pt[1], transformed_pt[2])
+            transformed_points.append({"id": marker_id, "point": transformed_point})
+        return transformed_points
 
-        marker_points = []
+    def reorder_markers_for_overlap(self, markers, threshold=None, z_threshold=0.05):
+        """
+        Reorder markers so that overlapping markers are processed first.
+        In this modified version, if the difference in the z coordinate between two markers
+        is less than `z_threshold`, they are considered overlapping immediately.
         
-        if ids is not None and len(ids) > 0:
-            # Draw detected markers on the image.
-            cv2.aruco.drawDetectedMarkers(output_image, corners, ids)
-            
-            # Process each detected marker.
-            for i in range(len(ids)):
-                c = corners[i][0]  # corners for marker i; shape (4,2)
-                cx = int(np.mean(c[:, 0]))
-                cy = int(np.mean(c[:, 1]))
-                # Draw the center for visualization.
-                cv2.circle(output_image, (cx, cy), 4, (0, 0, 255), -1)
-                
-                # Get depth at the marker center.
-                depth = depth_frame.get_distance(cx, cy)
-                if depth > 0:
-                    point_coords = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [cx, cy], depth)
-                    # Depending on your coordinate conventions, you may adjust the axes.
-                    x = point_coords[0]
-                    y = point_coords[1]
-                    z = point_coords[2]
-                    point3d = Point3D(x, y, z)
-                else:
-                    print(f"Invalid depth at marker {i} (pixel: {cx},{cy}).")
-                    point3d = Point3D(0, 0, 0)
-                
-                # Extract the marker id.
-                marker_id = int(ids[i][0])
-                marker_points.append({"id": marker_id, "point": point3d})
-                # print(f"Marker id {marker_id} at pixel ({cx}, {cy}) -> 3D: {point3d}")
-                
-            return output_image, marker_points
+        Args:
+            markers (list): List of dicts, each with keys "id" and "point" (Point3D).
+            threshold (float, optional): A fallback distance threshold to decide overlap.
+                                         Defaults to self.overlap_threshold.
+            z_threshold (float, optional): Threshold for the difference in z coordinates.
+                                           Defaults to 0.05.
+        
+        Returns:
+            ordered_markers (list): Reordered list of markers.
+        """
+        if threshold is None:
+            threshold = self.overlap_threshold
+
+        n = len(markers)
+        overlap_flags = [False] * n
+
+        # Check overlap using only the z coordinate.
+        for i in range(n):
+            for j in range(i + 1, n):
+                pt1 = markers[i]["point"]
+                pt2 = markers[j]["point"]
+                if abs(pt1.z - pt2.z) < z_threshold:
+                    overlap_flags[i] = True
+                    overlap_flags[j] = True
+
+        overlapped = [markers[i] for i in range(n) if overlap_flags[i]]
+        non_overlapped = [markers[i] for i in range(n) if not overlap_flags[i]]
+
+        overlapped_sorted = sorted(overlapped, key=lambda m: m["point"].y)
+        non_overlapped_sorted = sorted(non_overlapped, key=lambda m: m["id"])
+
+        return overlapped_sorted + non_overlapped_sorted
+
+    def get_overlapped_markers(self, markers, z_threshold=None):
+        """
+        Returns a list of markers that are considered overlapped based solely on their z coordinate.
+        Two markers are considered overlapped if the absolute difference in z is below z_threshold.
+        
+        Args:
+            markers (list): List of dicts, each with keys "id" and "point" (Point3D).
+            z_threshold (float, optional): The z threshold for overlap. Defaults to self.overlap_threshold.
+        
+        Returns:
+            overlapped (list): List of markers considered as overlapped.
+        """
+        if z_threshold is None:
+            z_threshold = self.overlap_threshold
+
+        overlapped = []
+        n = len(markers)
+        for i in range(n):
+            for j in range(i + 1, n):
+                pt1 = markers[i]["point"]
+                pt2 = markers[j]["point"]
+                if abs(pt1.z - pt2.z) < z_threshold:
+                    if markers[i] not in overlapped:
+                        overlapped.append(markers[i])
+                    if markers[j] not in overlapped:
+                        overlapped.append(markers[j])
+        return overlapped
+
+    def process_marker(self, marker):
+        """
+        Process one marker: compute target poses, move to pick and then place the object.
+        """
+        marker_id = marker["id"]
+        point = marker["point"]
+
+        # Calculate target poses (above the object and at the object).
+        target_pose_up = [point.x + 0.05, point.y - 0.10, point.z] + self.Test_RPY
+        target_pose_down = [point.x + 0.05, point.y, point.z] + self.Test_RPY
+
+        print(f"Moving to marker ID {marker_id} at position {target_pose_up}")
+        self.robot.robot_moveL(target_pose_up, self.speed)
+        time.sleep(3)
+        self.robot.robot_moveL(target_pose_down, self.speed)
+        # Here, in simulation, you might disable gripper commands:
+        # self.close_gripper()
+        time.sleep(3)
+        self.move_home()
+        time.sleep(3)
+        self.robot.robot_moveL(target_pose_up, self.speed)
+        time.sleep(3)
+        self.robot.robot_moveL(target_pose_down, self.speed)
+        # self.open_gripper()
+        time.sleep(3)
+        self.move_home()
+        time.sleep(3)
+        print(f"Completed move for marker ID {marker_id}")
+
+    def sort_and_stack_markers(self, markers):
+        """
+        Sort markers by id (ascending), and then process them sequentially.
+        This is used when there is no overlapping detected.
+        """
+        sorted_markers = sorted(markers, key=lambda m: m["id"])
+        for marker in sorted_markers:
+            self.process_marker(marker)
+
+    def build_behavior_tree(self):
+        """
+        Build the behavior tree to control the pick-and-place operations.
+        
+        Tree Structure:
+                        Selector
+                          /    \
+                [Overlap Sequence]   [Sorted Sequence]
+                     |                         |
+         [Check Overlap Condition]       [Process Sorted Action]
+
+        If overlapped markers are detected, process them first;
+        otherwise, sort all markers by id and process them.
+        """
+        self.bt_check_overlap = ConditionNode(self.bt_condition_overlap)
+        self.bt_process_overlapped = ActionNode(self.bt_action_process_overlapped)
+        self.bt_process_sorted = ActionNode(self.bt_action_process_sorted)
+
+        self.bt_sequence_overlap = SequenceNode([self.bt_check_overlap, self.bt_process_overlapped])
+        self.bt_sequence_sorted = SequenceNode([self.bt_process_sorted])
+        self.bt_root = SelectorNode([self.bt_sequence_overlap, self.bt_sequence_sorted])
+
+    def bt_condition_overlap(self):
+        """
+        Condition Node: Checks if there are overlapped markers.
+        Returns SUCCESS if overlapped markers exist; otherwise, FAILURE.
+        """
+        marker_points = self.cam_realsense()
+        if marker_points is None:
+            print("No marker points received.")
+            return False
+        transformed = self.transform_marker_points(marker_points, self.best_matrix)
+        self.bt_all_markers = sorted(transformed, key=lambda m: m["id"])
+        self.bt_overlapped = self.get_overlapped_markers(self.bt_all_markers)
+        if len(self.bt_overlapped) > 0:
+            print(f"Detected {len(self.bt_overlapped)} overlapped marker(s).")
+            return True
         else:
-            print("No markers detected.")
-            return output_image, []
+            print("No overlapped markers detected.")
+            return False
 
+    def bt_action_process_overlapped(self):
+        """
+        Action Node: Process overlapped markers.
+        """
+        print("Processing overlapped markers first (custom placement)...")
+        for marker in self.bt_overlapped:
+            self.process_marker(marker)
+        return SUCCESS
 
-    def get_board_pose(self, aruco_dict):
-        color_image, depth_frame, depth_intrinsics = self.get_color_and_depth_frames()
-        if color_image is None or depth_frame is None:
-            print("Failed to capture color/depth.")
-            return None, Point3D(0, 0, 0)  # Use Point3D, not Points3D
+    def bt_action_process_sorted(self):
+        """
+        Action Node: Process markers sorted by id.
+        """
+        print("Processing markers by sorting them (no overlaps detected).")
+        self.sort_and_stack_markers(self.bt_all_markers)
+        return SUCCESS
 
-        gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        parameters = cv2.aruco.DetectorParameters()
-        detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
-        corners, ids, rejected = detector.detectMarkers(gray)
-        output_image = color_image.copy()
-
-        if ids is not None and len(ids) > 0:
-            cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
-
-            all_cx = []
-            all_cy = []
-            for i in range(len(ids)):
-                c = corners[i][0]
-                cx = int(np.mean(c[:, 0]))
-                cy = int(np.mean(c[:, 1]))
-                all_cx.append(cx)
-                all_cy.append(cy)
-                cv2.circle(output_image, (cx, cy), 4, (0, 0, 255), -1)
-
-            cx = int(np.mean(all_cx))
-            cy = int(np.mean(all_cy))
-            point2d = [cx, cy]
-            print(cx,cy)
-            depth = depth_frame.get_distance(cx, cy)
-            if depth > 0:
-                point_coords = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [cx, cy], depth)
-                # Convert to Point3D 
-                # x = result[2]
-                # y = -point_coords[1]
-                # z = -point_coords[2]
-                x = point_coords[0]
-                y = point_coords[1]
-                z = point_coords[2]
-                point3d = Point3D(x, y, z)
-                print(f"Detected board center at: {point3d}")
-                return output_image, point3d
-            else:
-                print("Invalid depth.")
-                return output_image, Point3D(0, 0, 0)
+    def run_behavior_tree(self):
+        """
+        Run the behavior tree by ticking the root node.
+        """
+        status = self.bt_root.tick()
+        if status == SUCCESS:
+            print("Behavior tree completed successfully.")
         else:
-            print("No markers detected.")
-            return output_image, Point3D(0, 0, 0)
+            print("Behavior tree failed or is running.")
 
-    def get_board_pose_estimate(self, aruco_dict, camera_matrix, dist_coeffs, marker_length=0.05):
+    def move_muti_to_object(self):
         """
-        Estimates the 6DoF pose of the detected Aruco marker board using a hybrid approach:
-        - The rotation (rvec) is obtained from OpenCV’s estimatePoseSingleMarkers.
-        - The translation (tvec) is derived from the RealSense depth data.
-        
-        Parameters:
-        - aruco_dict: The dictionary used for marker detection 
-            (e.g., cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)).
-        - camera_matrix: The camera intrinsic matrix (3x3 numpy array).
-        - dist_coeffs: Distortion coefficients (numpy array).
-        - marker_length: The side length of the marker in meters (default is 0.05).
-        
-        Returns:
-        - output_image: The color image with detected markers and coordinate axes drawn.
-        - rvec: The rotation vector (from OpenCV) of the first detected marker, or None.
-        - tvec: The translation (as a Point3D) computed from the RealSense depth data, or a Point3D at (0,0,0).
+        Instead of directly processing markers, run the behavior tree.
         """
-        # Capture color and depth frames.
-        color_image, depth_frame, depth_intrinsics = self.get_color_and_depth_frames()
-        if color_image is None or depth_frame is None:
-            print("Failed to capture color/depth.")
-            return None, None, Point3D(0, 0, 0)
-        
-        gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        
-        # Create an Aruco detector and detect markers.
-        parameters = cv2.aruco.DetectorParameters()
-        detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
-        corners, ids, _ = detector.detectMarkers(gray)
-        output_image = color_image.copy()
-        
-        if ids is not None and len(ids) > 0:
-            # Draw detected markers for visualization.
-            cv2.aruco.drawDetectedMarkers(output_image, corners, ids)
-            
-            # Use estimatePoseSingleMarkers to obtain rvecs and tvecs for each marker.
-            rvecs, tvecs_dummy, _ = cv2.aruco.estimatePoseSingleMarkers(
-                corners,
-                markerLength=marker_length,
-                cameraMatrix=camera_matrix,
-                distCoeffs=dist_coeffs
-            )
-            
-            if rvecs is not None and len(rvecs) > 0:
-                # For the first detected marker, compute its center pixel.
-                pts = corners[0][0]  # 4 corners for marker 0
-                cx = int(np.mean(pts[:, 0]))
-                cy = int(np.mean(pts[:, 1]))
-                
-                # Use the RealSense depth data to compute a translation.
-                depth = depth_frame.get_distance(cx, cy)
-                if depth > 0:
-                    # Deproject the center pixel to 3D using the depth intrinsics.
-                    point_coords = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [cx, cy], depth)
-                    tvec_depth = np.array([point_coords[0], point_coords[1], point_coords[2]]).reshape(1, 3)
-                    point3d = Point3D(tvec_depth[0][0], tvec_depth[0][1], tvec_depth[0][2])
-                else:
-                    print("Invalid depth at marker center.")
-                    return output_image, None, Point3D(0, 0, 0)
-                
-                # Draw coordinate axes for each detected marker using the computed tvec_depth.
-                for marker_index in range(len(rvecs)):
-                    cv2.drawFrameAxes(output_image, camera_matrix, dist_coeffs, 
-                                    rvecs[marker_index], tvec_depth.reshape(1, 3), marker_length)
-                    
-                # Use the first marker's rotation vector as the estimated rotation.
-                rvec = rvecs[0]
-                # Convert the rotation vector to a rotation matrix.
-                rot_matrix, _ = cv2.Rodrigues(rvec)
-                # Convert rotation matrix to quaternion and Euler angles via scipy.
-                r = R.from_matrix(rot_matrix)
-                quat = r.as_quat()   # in (x, y, z, w) order
-                roll, pitch, yaw = self.euler_from_quaternion(quat[0], quat[1], quat[2], quat[3])
-                print("Roll (deg):", math.degrees(roll))
-                print("Pitch (deg):", math.degrees(pitch))
-                print("Yaw (deg):", math.degrees(yaw))
-                print("Estimated translation from depth:", point3d)
-                print("Estimated rotation vector:", rvec.ravel())
-                
-                return output_image, rvec, point3d
-            else:
-                print("estimatePoseSingleMarkers returned no rotation data.")
-                return output_image, None, Point3D(0, 0, 0)
-        else:
-            print("No markers detected.")
-            return output_image, None, Point3D(0, 0, 0)
-
-
-
-
-    # def get_board_pose_estimate(self, aruco_dict, camera_matrix, dist_coeffs, marker_length=0.05):
-    #     """
-    #     Estimates the 6DoF pose of the detected Aruco marker board using estimatePoseSingleMarkers.
-        
-    #     Parameters:
-    #     - aruco_dict: The dictionary used for marker detection 
-    #         (e.g., cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)).
-    #     - camera_matrix: The camera intrinsic matrix (3x3 numpy array).
-    #     - dist_coeffs: Distortion coefficients (numpy array, e.g., np.zeros((5,1), dtype=np.float32)).
-    #     - marker_length: The actual side length of the marker in meters (default is 0.05).
-        
-    #     Returns:
-    #     - output_image: The color image with detected markers and the coordinate axes drawn.
-    #     - rvec: The rotation vector for the first detected marker (if available) or None.
-    #     - tvec: The translation (as a Point3D) for the first detected marker (if available) or a Point3D at (0,0,0).
-    #     """
-    #     # Capture color and depth frames.
-    #     color_image, depth_frame, _ = self.get_color_and_depth_frames()
-    #     if color_image is None or depth_frame is None:
-    #         print("Failed to capture color/depth.")
-    #         return None, None, Point3D(0, 0, 0)
-        
-    #     gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        
-    #     # Create an Aruco detector and detect markers.
-    #     parameters = cv2.aruco.DetectorParameters()
-    #     detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
-    #     corners, ids, rejected = detector.detectMarkers(gray)
-    #     output_image = color_image.copy()
-        
-    #     if ids is not None and len(ids) > 0:
-    #         # Draw detected markers for visualization.
-    #         cv2.aruco.drawDetectedMarkers(output_image, corners, ids)
-            
-    #         # Use estimatePoseSingleMarkers to obtain rvecs and tvecs for each marker.
-    #         rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-    #             corners,
-    #             markerLength=marker_length,
-    #             cameraMatrix=camera_matrix,
-    #             distCoeffs=dist_coeffs
-    #         )
-            
-    #         # Check if pose estimation returned any data.
-    #         if rvecs is not None and len(rvecs) > 0:
-    #             # For each detected marker, draw coordinate axes on the image.
-    #             for marker_index in range(len(rvecs)):
-    #                 cv2.drawFrameAxes(output_image, camera_matrix, dist_coeffs, 
-    #                                 rvecs[marker_index], tvecs[marker_index], marker_length)
-                
-    #             # Use the first marker's pose as an example.
-    #             # tvecs is of shape (num_markers, 1, 3); extract the first one.
-    #             tvec = tvecs[0]
-    #             rvec = rvecs[0]
-    #             # Convert the translation to a Point3D.
-    #             point3d = Point3D(tvec[0][0], tvec[0][1], tvec[0][2])
-                
-    #             # Convert the rotation vector to a rotation matrix.
-    #             rot_matrix, _ = cv2.Rodrigues(rvec)
-    #             # If you want to work with quaternions and Euler angles, you can do so. For example,
-    #             # using the scipy.spatial.transform.Rotation package:
-    #             #
-    #             # from scipy.spatial.transform import Rotation as R
-    #             r = R.from_matrix(rot_matrix)
-    #             quat = r.as_quat()   # returns in (x, y, z, w) format
-    #             roll, pitch, yaw = self.euler_from_quaternion(quat[0], quat[1], quat[2], quat[3])
-    #             print("Roll (deg):", math.degrees(roll))
-    #             print("Pitch (deg):", math.degrees(pitch))
-    #             print("Yaw (deg):", math.degrees(yaw))
-    #             #
-    #             # For now, we simply print the raw rotation vector.
-    #             print("Estimated translation (tvec):", point3d)
-    #             print("Estimated rotation vector (rvec):", rvec.ravel())
-                
-    #             return output_image, rvec, point3d
-    #         else:
-    #             print("estimatePoseSingleMarkers returned no pose data.")
-    #             return output_image, None, Point3D(0, 0, 0)
-    #     else:
-    #         print("No markers detected.")
-    #         return output_image, None, Point3D(0, 0, 0)
-
-
-
-    def euler_from_quaternion(self,x, y, z, w):
-        """
-        Convert a quaternion into euler angles (roll, pitch, yaw)
-        roll is rotation around x in radians (counterclockwise)
-        pitch is rotation around y in radians (counterclockwise)
-        yaw is rotation around z in radians (counterclockwise)
-        """
-        t0 = +2.0 * (w * x + y * z)
-        t1 = +1.0 - 2.0 * (x * x + y * y)
-        roll_x = math.atan2(t0, t1)
-            
-        t2 = +2.0 * (w * y - z * x)
-        t2 = +1.0 if t2 > +1.0 else t2
-        t2 = -1.0 if t2 < -1.0 else t2
-        pitch_y = math.asin(t2)
-            
-        t3 = +2.0 * (w * z + x * y)
-        t4 = +1.0 - 2.0 * (y * y + z * z)
-        yaw_z = math.atan2(t3, t4)
-            
-        return roll_x, pitch_y, yaw_z # in radians
-    
-
-    def get_imu_frames(self):
-        """
-        Retrieves accelerometer and gyroscope data.
-        
-        Returns:
-            accel_data: A namedtuple with fields x, y, z from the accelerometer.
-            gyro_data: A namedtuple with fields x, y, z from the gyroscope.
-        """
-        # self.imu_pipe.start(self.imu_config)
-        mot_frames = self.imu_pipe.wait_for_frames()
-        if mot_frames:
-            accel_data = mot_frames[0].as_motion_frame().get_motion_data()
-            gyro_data = mot_frames[1].as_motion_frame().get_motion_data()
-            return accel_data, gyro_data
-        else:
-            print("Failed to retrieve IMU data.")
-            return None, None
-
-
-    def stop(self):
-        """
-        Stop the RealSense pipeline.
-        """
-        if self.pipeline is None and self.imu_pipe is None:
-            print("Pipeline is not initialized.")
+        if self.best_matrix is None:
+            print("Failed to load transformation matrix.")
             return
-        if self.pipeline and self.imu_pipe:
-            print("Stopping RealSense camera...")
-            self.pipeline.stop()
-            self.imu_pipe.stop()
-            self.imu_pipe = None
-            self.pipeline = None
-            self.config = None
-            self.profile = None
-            self.align = None
-            self.align_depth = None 
-            print("RealSense camera stopped.")
-        else:
-            print("Pipeline is already stopped or not initialized.")
- 
+        self.run_behavior_tree()
 
-    def restart(self):
+
+# ---------------------------------------------------
+# Simulated Class: Override cam_realsense() and Movement
+# ---------------------------------------------------
+
+class SimulatedMove2Object(Move2Object):
+    def cam_realsense(self):
         """
-        Restart the RealSense pipeline.
+        Instead of capturing from a camera, return test marker data.
+        Each marker is a dict with "id" and "point" (Point3D) constructed
+        from the provided test data.
         """
-        if self.pipeline is None:
-            print("Pipeline is not initialized. Cannot restart.")
-            return
-        print("Restarting RealSense camera...")
-        # Stop the pipeline before reinitializing
-        self.stop()
-        self.init_cam()
-        print("RealSense camera restarted with aligned color and depth streams.")
+        test_data = [
+            {"id": 1, "x": 0.47737592458724976, "y": 0.05334507301449776, "z": -1.4030000400543213},
+            {"id": 2, "x": -0.22360965609550476, "y": -0.0995423257350922, "z": -1.4980000257492065},
+            {"id": 3, "x": 0.011661688797175884, "y": -0.10243550688028336, "z": -1.4980000257492065},
+            {"id": 4, "x": 0.2854086458683014, "y": 0.00665783792734146, "z": -1.505000114440918},
+            {"id": 5, "x": -0.19570325314998627, "y": 0.07943285256624222, "z": -1.5120000839233398},
+            {"id": 6, "x": 0.021726226434111595, "y": 0.05677981302142143, "z": -1.5090000629425049}
+        ]
+        markers = []
+        for item in test_data:
+            pt = Point3D(item["x"], item["y"], item["z"])
+            markers.append({"id": item["id"], "point": pt})
+        print("Simulated camera detects the following markers:")
+        for marker in markers:
+            pt = marker["point"]
+            print(f"  Marker ID {marker['id']} at ({pt.x:.3f}, {pt.y:.3f}, {pt.z:.3f})")
+        return markers
 
-    def __del__(self):
-        self.stop()
+    def __init__(self):
+        super().__init__()
+        # Override movement methods to simulate (print) actions.
+        self.robot.robot_moveL = lambda pose, speed: print(f"Simulated moveL to pose: {pose}, speed: {speed}")
+        self.move_home = lambda: print("Simulated move_home called")
+        self.stop_all = lambda: print("Simulated stop_all called")
 
 
+def main():
+    # Create an instance of the simulated class.
+    move_object = SimulatedMove2Object()
+    move_object.move_home()
+    time.sleep(2)
+    move_object.move_muti_to_object()
+    time.sleep(5)  # Wait before returning home
+    move_object.move_home()
+    move_object.stop_all()
 
+
+if __name__ == "__main__":
+    main()
