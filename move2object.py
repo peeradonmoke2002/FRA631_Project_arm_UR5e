@@ -52,12 +52,11 @@ class Move2Object():
             self._GRIPPER_LEFT_.my_release()
             exit()
 
-        time.sleep(0.6)  # Delay slightly longer than the TIME_PROTECTION (0.5 s)
+        # Delay slightly longer than the TIME_PROTECTION (0.5 s)
         print("Testing gripper ...", end="")
         self.close_gripper()  # Now this should actuate the close command
-        time.sleep(2)                   # Wait for 2 seconds before the next command
         self.open_gripper()    # Test open command
-        time.sleep(2)  # Wait for 2 seconds before the next command
+     
 
 
     def stop_all(self):
@@ -193,7 +192,7 @@ class Move2Object():
             time.sleep(3)
             # back to home position
             self.move_home()
-            time.sleep(3)
+      
             # up over the object
             self.robot.robot_moveL(target_pose_up, self.speed)
             time.sleep(3)

@@ -50,19 +50,21 @@ class RobotControl:
         """Return the current TCP offset."""
         return self._ROBOT_CON_.getTCPOffset()
     
-    def robot_get_fk(self, q: Optional[List[float]] = None, tcp_offset: Optional[List[float]] = None):
-         if q is None and tcp_offset is None:
-             return self._ROBOT_RECV_.getForwardKinematics()
-         else:
-            return self._ROBOT_RECV_.getForwardKinematics(q, tcp_offset)
+    def robot_get_fk(self):
+        return self._ROBOT_CON_.getForwardKinematics()
+
 
 
     def robot_get_ik(self, 
-                     x: List[float], 
-                     qnear: Optional[List[float]] = None, 
-                     maxPositionError: Optional[float] = None, 
-                     maxOrientationError: Optional[float] = None):
-        return self._ROBOT_CON_.getInverseKinematics(x)
+                     x: List[float]):
+        """Calculate inverse kinematics for the robot. """
+        q_robot = self.robot_get_joint_rad()
+        joint_robot = self._ROBOT_CON_.getInverseKinematics(x, q_robot)
+        return joint_robot
+
+
+
+
 
         
     # --------------------------
