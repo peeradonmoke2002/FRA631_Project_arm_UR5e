@@ -52,15 +52,41 @@ class RobotControl:
     
     def robot_get_fk(self):
         return self._ROBOT_CON_.getForwardKinematics()
+    
+    def robot_get_test_fk(self, joint_pos, TCP_offset):
+        """
+        Calculate forward kinematics for the robot.
+        
+        Parameters:
+            joint_pos: Joint positions as a list of floats [q1, q2, q3, q4, q5, q6].
+            TCP_offset: TCP offset as a list of floats [x, y, z, Rx, Ry, Rz].
+        
+        Returns:
+            The pose computed from FK.
+        """
+        pose = self._ROBOT_CON_.getForwardKinematics(joint_pos,TCP_offset)
+        return pose
 
 
 
-    def robot_get_ik(self, 
-                     x: List[float]):
-        """Calculate inverse kinematics for the robot. """
-        q_robot = self.robot_get_joint_rad()
+    def robot_get_ik(self, x: List[float]):
+        """
+        Calculate inverse kinematics for the robot.
+        
+        Parameters:
+            x: Target pose as a list of floats [x, y, z, Rx, Ry, Rz].
+        
+        Returns:
+            The joint configuration computed from IK or raises an error if IK fails.
+        """
+        q_robot = self.robot_get_joint_rad()  # Current joint configuration as seed
         joint_robot = self._ROBOT_CON_.getInverseKinematics(x, q_robot)
+        
+        if joint_robot is None:
+            raise ValueError("Inverse kinematics failed to find a solution for the given pose.")
+        
         return joint_robot
+
 
 
 
@@ -88,9 +114,9 @@ class RobotControl:
         """Stop joint movement."""
         self._ROBOT_CON_.stopJ(a, asynchronous)
 
-    def robot_move_speed(self, velocity) -> None:
+    def robot_move_speed(self, velocity, acceleration, time) -> None:
         """Move robot with a linear speed."""
-        self._ROBOT_CON_.speedL(xd=velocity, acceleration=0.1, time=0)
+        self._ROBOT_CON_.speedL(xd=velocity, acceleration=acceleration, time=time)
 
     def robot_move_speed_stop(self, acceleration=0.1) -> None:
         """Stop linear speed movement."""
