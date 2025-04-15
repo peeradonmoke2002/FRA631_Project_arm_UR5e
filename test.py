@@ -9,7 +9,7 @@ We test the transformation and reordering functionalities.
 import unittest
 import numpy as np
 from classrobot.point3d import Point3D
-from move2object import Move2Object
+from FRA631_Project_Dual_arm_UR5_planing.moveobject import Move2Object
 
 class DummyMove2Object(Move2Object):
     """

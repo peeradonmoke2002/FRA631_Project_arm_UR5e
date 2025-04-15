@@ -71,3 +71,125 @@ time – time [s] before the function returns (optional)
     #         time.sleep(3)
     #         # done :)
     #         print(f"Completed move to marker ID {marker_id}")
+
+
+
+
+### pose empyty 100 - 103
+
+PS C:\Users\COMPUTER3\Desktop\fra631-project> & C:/Users/COMPUTER3/Desktop/fra631-project/FRA631_Project_Dual_arm_UR5/venv/Scripts/python.exe c:/Users/COMPUTER3/Desktop/fra631-project/FRA631_Project_Dual_arm_UR5/print_pose_cam.py
+Loading camera configuration from: c:\Users\COMPUTER3\Desktop\fra631-project\FRA631_Project_Dual_arm_UR5\FRA631_Project_Dual_arm_UR5_Calibration\caribration\config\cam.json
+RealSense camera started with aligned color and depth streams (640x480@30fps)
+RealsenseCam initialized with width: 640, height: 480, fps: 30
+Connecting to 3-Finger 192.168.200.11:502[SUCCESS]
+Testing gripper ...Moving to home position...
+[{'id': 100, 'point': Point3D(x=0.388, y=0.173, z=1.509)}, {'id': 102, 'point': Point3D(x=0.178, y=0.169, z=1.520)}, {'id': 101, 'point': Point3D(x=0.282, y=0.174, z=1.512)}, {'id': 14, 'point': Point3D(x=0.251, y=-0.061, 
+z=1.494)}, {'id': 3, 'point': Point3D(x=-0.095, y=-0.050, z=1.466)}]
+[{'id': 100, 'point': Point3D(x=0.664, y=0.378, z=-0.366)}, {'id': 102, 'point': Point3D(x=0.667, y=0.385, z=-0.156)}, {'id': 101, 'point': Point3D(x=0.663, y=0.379, z=-0.260)}, {'id': 14, 'point': Point3D(x=0.893, y=0.333, z=-0.227)}, {'id': 3, 'point': Point3D(x=0.877, y=0.299, z=0.118)}]
+3
+0.877280712545522 0.29880844787390726 0.11828007643612326
+14
+0.8933949381518251 0.3334072190654045 -0.22712722812202885
+100
+0.6643783728325642 0.3775543769750991 -0.36627226530662876
+101
+0.6634817558120947 0.3786847110554039 -0.2600229879025823
+102
+0.6674882615352408 0.38458554664877553 -0.15645891855099953
+Stopping RealSense camera...
+RealSense camera stopped.
+
+
+
+
+
+
+move2obj Log
+
+PS C:\Users\COMPUTER3\Desktop\fra631-project> & C:/Users/COMPUTER3/Desktop/fra631-project/FRA631_Project_Dual_arm_UR5/venv/Scripts/python.exe c:/Users/COMPUTER3/Desktop/fra631-project/FRA631_Project_Dual_arm_UR5/move2object.py
+Loading camera configuration from: c:\Users\COMPUTER3\Desktop\fra631-project\FRA631_Project_Dual_arm_UR5\FRA631_Project_Dual_arm_UR5_Calibration\caribration\config\cam.json
+RealSense camera started with aligned color and depth streams (640x480@30fps)
+RealsenseCam initialized with width: 640, height: 480, fps: 30
+Connecting to 3-Finger 192.168.200.11:502[SUCCESS]
+Testing gripper ...Closing gripper...
+Opening gripper...
+Moving to home position...
+[{'id': 100, 'point': Point3D(x=0.400, y=0.182, z=1.516)}, {'id': 102, 'point': Point3D(x=0.177, y=0.169, z=1.516)}, {'id': 101, 'point': Point3D(x=0.283, y=0.174, z=1.520)}, {'id': 14, 'point': Point3D(x=0.251, y=-0.061, 
+z=1.494)}, {'id': 3, 'point': Point3D(x=-0.093, y=-0.050, z=1.466)}]
+[{'id': 100, 'point': Point3D(x=0.657, y=0.386, z=-0.378)}, {'id': 102, 'point': Point3D(x=0.668, y=0.380, z=-0.156)}, {'id': 101, 'point': Point3D(x=0.663, y=0.387, z=-0.262)}, {'id': 14, 'point': Point3D(x=0.893, y=0.333, z=-0.227)}, {'id': 3, 'point': Point3D(x=0.877, y=0.299, z=0.116)}]
+Moving to marker ID 3 at position [0.9272998119997586, 0.19885467336493376, 0.11586590006262515, -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+Closing gripper...
+Moving to home position...
+Opening gripper...
+Moving to home position...
+Completed move to marker ID 3
+Moving to marker ID 14 at position [0.9433949381518252, 0.2334072190654045, -0.22712722812202885, -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+Closing gripper...
+Moving to home position...
+
+
+
+
+### 2 
+
+
+PS C:\Users\COMPUTER3\Desktop\fra631-project> & C:/Users/COMPUTER3/Desktop/fra631-project/FRA631_Project_Dual_arm_UR5/venv/Scripts/python.exe c:/Users/COMPUTER3/Desktop/fra631-project/FRA631_Project_Dual_arm_UR5/move2object.py
+Loading camera configuration from: c:\Users\COMPUTER3\Desktop\fra631-project\FRA631_Project_Dual_arm_UR5\FRA631_Project_Dual_arm_UR5_Calibration\caribration\config\cam.json
+RealSense camera started with aligned color and depth streams (640x480@30fps)
+RealsenseCam initialized with width: 640, height: 480, fps: 30
+Connecting to 3-Finger 192.168.200.11:502[SUCCESS]
+Testing gripper ...Closing gripper...
+Opening gripper...
+Moving to home position...
+[{'id': 100, 'point': Point3D(x=0.400, y=0.182, z=1.516)}, {'id': 102, 'point': Point3D(x=0.177, y=0.169, z=1.516)}, {'id': 101, 'point': Point3D(x=0.283, y=0.174, z=1.520)}, {'id': 14, 'point': Point3D(x=0.251, y=-0.061, 
+z=1.494)}, {'id': 3, 'point': Point3D(x=-0.093, y=-0.050, z=1.466)}]
+[{'id': 100, 'point': Point3D(x=0.657, y=0.386, z=-0.378)}, {'id': 102, 'point': Point3D(x=0.668, y=0.380, z=-0.156)}, {'id': 101, 'point': Point3D(x=0.663, y=0.387, z=-0.262)}, {'id': 14, 'point': Point3D(x=0.893, y=0.333, z=-0.227)}, {'id': 3, 'point': Point3D(x=0.877, y=0.299, z=0.116)}]
+Moving to marker ID 3 at position [0.9272998119997586, 0.19885467336493376, 0.11586590006262515, -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+Closing gripper...
+Moving to home position...
+Opening gripper...
+Moving to home position...
+Completed move to marker ID 3
+Moving to marker ID 14 at position [0.9433949381518252, 0.2334072190654045, -0.22712722812202885, -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+Closing gripper...
+Moving to home position...
+Opening gripper...
+Moving to home position...
+Completed move to marker ID 14
+Moving to marker ID 100 at position [0.7068990556421646, 0.28599876986109385, -0.3782374640355311, -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+RTDEControlInterface: RTDE control script is not running!
+RTDEControlInterface: RTDE control script is not running!
+Closing gripper...
+Moving to home position...
+RTDEControlInterface: RTDE control script is not running!
+RTDEControlInterface: RTDE control script is not running!
+RTDEControlInterface: RTDE control script is not running!
+Opening gripper...
+Moving to home position...
+RTDEControlInterface: RTDE control script is not running!
+Completed move to marker ID 100
+Moving to marker ID 101 at position [0.7133451021118438, 0.28715488774849784, -0.2616368909241974, -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+RTDEControlInterface: RTDE control script is not running!
+RTDEControlInterface: RTDE control script is not running!
+Closing gripper...
+Moving to home position...
+RTDEControlInterface: RTDE control script is not running!
+RTDEControlInterface: RTDE control script is not running!
+RTDEControlInterface: RTDE control script is not running!
+Opening gripper...
+Moving to home position...
+RTDEControlInterface: RTDE control script is not running!
+Completed move to marker ID 101
+Moving to marker ID 102 at position [0.7175456835152132, 0.2803571568577877, -0.15592873528308088, -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+RTDEControlInterface: RTDE control script is not running!
+RTDEControlInterface: RTDE control script is not running!
+Closing gripper...
+Moving to home position...
+RTDEControlInterface: RTDE control script is not running!
+RTDEControlInterface: RTDE control script is not running!
+RTDEControlInterface: RTDE control script is not running!
+Opening gripper...
+Moving to home position...
+RTDEControlInterface: RTDE control script is not running!
+Completed move to marker ID 102
+
