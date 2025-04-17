@@ -1,3 +1,5 @@
+      #  self.safe_pos_right_hand = [-0.46091229133782063, -0.03561778716957069, 0.5597582676128492, -0.026107352593298303, -1.6156259386208272, 0.011223536317220348]
+     #   self.HOME_POS_right_hand =    [-0.7000166613125681, 0.17996458960475226, 0.17004862107257468, -0.014724582993124808, -1.5742326761027705, -0.016407326458784333]   
 # move2object.py
 import time
 import cv2 as cv
@@ -18,26 +20,26 @@ class Move2Object:
         self.HOME_POS = [0.701172053107018, 0.184272460738082, 0.1721568294843568,
                          -1.7318488600590023, 0.686830145115122, -1.731258978679887]
         self.robot_ip = "192.168.200.10"
-        self.speed = 0.02
+        self.speed = 0.025
         self.acceleration = 1.0
-        # fix y position and roll-pitch-yaw
         self.FIX_Y = 0.18427318897339476
         self.RPY = [-1.7318443587261685, 0.686842056802218, -1.7312759524010408]
         self.Test_RPY = [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
-
-        # Load the transformation matrix from a JSON file.
-        self.config_matrix_path = pathlib.Path(__file__).parent / "FRA631_Project_Dual_arm_UR5_Calibration/caribration/config/best_matrix.json"
-        # Initialize the robot connection once.
+        self.config_matrix_path = pathlib.Path(__file__).parent / "config/best_matrix.json"
         self.robot = robot_movement.RobotControl()
         self.robot.robot_release()
         self.robot.robot_init(self.robot_ip)
-
         self.cam = realsense_cam.RealsenseCam()
-        self.empty_pos = [0.388, 0.173, 1.509]
+  
+        self.recive_pos = [ ]
+        # self.empty_pos = [0.388, 0.173, 1.509]
         self.best_matrix = self.load_matrix()
-
+    
         self._GRIPPER_LEFT_ = gripper.MyGripper3Finger()
         self.init_gripper()
+        # Track which empty markers have been used (markers with IDs 100, 101, 102).
+        self.used_empty_markers = []
+        
 
     def init_gripper(self):
         # Initialize the gripper connection.
@@ -53,7 +55,7 @@ class Move2Object:
             self._GRIPPER_LEFT_.my_release()
             exit()
 
-        time.sleep(0.6)  # Delay slightly longer than the TIME_PROTECTION (0.5 s).
+        time.sleep(0.6)  # Slight delay.
         print("Testing gripper ...", end="")
         self.close_gripper()  # Test the close command.
         time.sleep(2)
@@ -144,45 +146,86 @@ class Move2Object:
             transformed_points.append({"id": marker_id, "point": transformed_point})
         return transformed_points
 
-    def empyty_pose(self):
+    def min_marker(self, transformed_points):
         """
-        Transforms the stored empty position to the robot base frame.
-        Returns the empty position as a list: [x, y, z, roll, pitch, yaw].
+        Find the marker with the lowest Z *only* among real boxes (ID < 100).
         """
-        empty_homo = np.array(self.empty_pos + [1.0], dtype=np.float32).reshape(4, 1)
-        transformed_empty_space = self.best_matrix @ empty_homo
-        transformed_empty = (transformed_empty_space[:3, 0] /
-                             transformed_empty_space[3, 0]).tolist()
-        return transformed_empty 
+        # keep only real‑box IDs
+        candidates = [m for m in transformed_points if m["id"] < 100]
+        if not candidates:
+            print("No box markers found.")
+            return None
 
+        # pick the one with min Z
+        bottom = min(candidates, key=lambda m: m["point"].y)
+        print(f"Marker with lowest z: ID {bottom['id']} (z={bottom['point'].y})")
+        return bottom
+    
 
-    def check_box_is_stack(self, transformed_points):
+    def max_marker(self, transformed_points):
         """
-        Checks if any box is stacked based on the z-coordinate of the transformed points.
-        Returns True if a marker has a z-coordinate below 3.6, False otherwise.
+        Find the marker with the highest Z *only* among real boxes (ID < 100).
         """
-        for marker in transformed_points:
-            point = marker["point"]
-            if point.z < 3.6:
-                print("Box is stacked.")
-                return True
-        print("Box is not stacked.")
-        return False
+        # keep only real-box IDs
+        candidates = [m for m in transformed_points if m["id"] < 100]
+        if not candidates:
+            print("No box markers found.")
+            return None
+
+        top = max(candidates, key=lambda m: m["point"].y)
+        print(f"Marker with highest z: ID {top['id']} (z={top['point'].y})")
+        return top
 
     def pick_box(self, marker):
-        """Move above and pick the box at the marker position."""
-        point = marker["point"]
-        target_pose_up = [point.x + 0.05, point.y - 0.10, point.z + 0.1] + self.Test_RPY
-        target_pose_down = [point.x + 0.05, point.y, point.z] + self.Test_RPY
+        """
+        1) Approach over the box: move in X–Z, keep Y fixed.
+        2) Descend to the actual Y of the box and close gripper.
+        3) Retract back to the approach pose.
+        """
+        p = marker["point"]
+        # 1a) Compute an X–Z “above” pose, with Y fixed
+        approach = [p.x + 0.05, self.FIX_Y, p.z] + self.Test_RPY
+        # 1b) Compute the actual pick pose using the true Y from the transform
+        pick_pos = [p.x + 0.05, p.y,       p.z] + self.Test_RPY
 
-        print(f"[PICK] Marker ID {marker['id']}")
-        self.robot.robot_moveL(target_pose_up, self.speed)
+        print(f"[PICK] Marker ID {marker['id']} at (x={p.x:.3f}, y={p.y:.3f}, z={p.z:.3f})")
+        # move above in X–Z
+        self.robot.robot_moveL(approach, self.speed)
         time.sleep(1)
-        self.robot.robot_moveL(target_pose_down, self.speed)
+        # descend in Y
+        self.robot.robot_moveL(pick_pos, self.speed)
         time.sleep(1)
-        self.close_gripper()
+        # grip
+        self._GRIPPER_LEFT_.my_hand_close()
         time.sleep(1)
-        self.robot.robot_moveL(target_pose_up, self.speed)
+        # retract back to approach pose
+        self.robot.robot_moveL(approach, self.speed)
+        time.sleep(1)
+
+    def place_box_at(self, marker_point):
+        """
+        1) Approach over the place point in X–Z, Y fixed.
+        2) Descend to actual Y of the place marker and open gripper.
+        3) Retract back to the approach pose.
+        """
+        p = marker_point
+        # approach pose (X–Z move, Y fixed)
+        approach = [p.x, self.FIX_Y, p.z] + self.Test_RPY
+        # actual place pose
+        place_pos = [p.x, p.y-0.05,       p.z] + self.Test_RPY
+
+        print(f"[PLACE] at marker pos (x={p.x:.3f}, y={p.y:.3f}, z={p.z:.3f})")
+        # move above in X–Z
+        self.robot.robot_moveL(approach, self.speed)
+        time.sleep(1)
+        # descend in Y
+        self.robot.robot_moveL(place_pos, self.speed)
+        time.sleep(0.6)
+        # release
+        self._GRIPPER_LEFT_.my_hand_open()
+        time.sleep(1)
+        # retract
+        self.robot.robot_moveL(approach, self.speed)
         time.sleep(1)
 
     def find_next_stack_position(self, current_id, sorted_markers):
@@ -192,20 +235,6 @@ class Move2Object:
                 return marker
         return None
 
-    def place_box_at(self, point):
-        """Place the box at the specified 3D point."""
-        stack_pose_up = [point.x, point.y-10, point.z] + self.Test_RPY
-        stack_pose_down = [point.x, point.y, point.z] + self.Test_RPY
-
-        print(f"[STACK] Placing box at position {point}")
-        self.robot.robot_moveL(stack_pose_up, self.speed)
-        time.sleep(1)
-        self.robot.robot_moveL(stack_pose_down, self.speed)
-        time.sleep(1)
-        self.open_gripper()
-        time.sleep(1)
-        self.robot.robot_moveL(stack_pose_up, self.speed)
-        time.sleep(1)
 
     def sort_pick_and_place(self):
         """
@@ -228,31 +257,141 @@ class Move2Object:
             else:
                 print(f"[SKIP STACK] No higher marker found for marker ID {current_id}")
 
+    def get_next_empty_marker(self, transformed_points):
+        """
+        Searches for an available empty marker among those with IDs 100, 101, or 102.
+        If a marker has already been used for placement, it is skipped.
+        Returns the marker dictionary if found; otherwise, returns None.
+        """
+        empty_ids = {100, 101, 102}
+        for marker in transformed_points:
+            if marker["id"] in empty_ids and marker["id"] not in self.used_empty_markers:
+                self.used_empty_markers.append(marker["id"])
+                print(f"[EMPTY] Using empty marker ID {marker['id']}")
+                return marker
+        print("[EMPTY] No available empty marker found.")
+        return None
+    
+    def stack_chain_boxes(self, target_id=104, count=3):
+        """
+        Stack the lowest-ID boxes in sequence:
+        1) First box goes to the position of marker `target_id`.
+        2) Each subsequent box goes to the original position of the previously stacked box’s marker.
+        """
+        raw_pts     = self.cam_relasense()
+        transformed = self.transform_marker_points(raw_pts, self.best_matrix)
+        # Build a map from marker ID → Point3D
+        point_map = {m['id']: m['point'] for m in transformed}
+
+        # Gather all box markers (IDs <100), sort by ascending ID, and take the first `count`
+        box_markers = sorted([m for m in transformed if m['id'] < 100],
+                             key=lambda m: m['id'])[:count]
+        # Chain‐stack 
+        prev_id = target_id
+        for marker in box_markers:
+            box_id = marker['id']
+
+            # Make sure we know the placement point
+            if prev_id not in point_map:
+                print(f"[STACK] Cannot find position for marker {prev_id}, abort chain.")
+                return
+
+            place_pt = point_map[prev_id]
+            print(f"[STACK] Picking box {box_id} → placing at marker {prev_id} position")
+            self.pick_box(marker)
+            self.place_box_at(place_pt)
+            self.move_home()
+            time.sleep(1)
+            #Now the next box uses this box’s original marker ID
+            prev_id = box_id 
+
+    def detect_overlaps(self, pts):
+        """
+        Group real boxes (ID < 100) whose Y‑coordinate difference is < 0.3 m.
+        Returns a list of groups; each group is a list of markers considered
+        to be in the same stack purely by their Y proximity.
+        """
+        STACK_Y_DIFF = 0.3
+
+        # 1) filter down to just the real boxes
+        boxes = [m for m in pts if m["id"] < 100]
+
+        groups = []
+        used = set()
+
+        for i, base in enumerate(boxes):
+            if i in used:
+                continue
+
+            group = [base]
+            by = base["point"].y
+
+            for j, other in enumerate(boxes[i+1:], start=i+1):
+                if j in used:
+                    continue
+
+                oy = other["point"].y
+                if abs(by - oy) < STACK_Y_DIFF:
+                    group.append(other)
+                    used.add(j)
+
+            if len(group) > 1:
+                used.add(i)
+                groups.append(group)
+
+        return groups
 
 def main():
-    move2object = Move2Object()
-    move2object.move_home()
+    mover = Move2Object()
+    mover.move_home()
     time.sleep(2)
 
-    # Retrieve marker points and transform them.
-    marker_points = move2object.cam_relasense()
-    transformed_points = move2object.transform_marker_points(marker_points, move2object.best_matrix)
+    # ----- Phase 1: Destack onto markers 100,101,102 only -----
+    while True:
+        raw_pts     = mover.cam_relasense()
+        transformed = mover.transform_marker_points(raw_pts, mover.best_matrix)
 
-    # Check if a box is  stacked.
-    if move2object.check_box_is_stack(transformed_points):
-        print("[INFO] A box is  stacked.")
-        # For example, pick the first stacked box (marker with z < 3.6).
-        for marker in transformed_points:
-            if marker["point"].z < 3.6:
-                move2object.pick_box(marker)
-                break
-        # Get the empty position and place the box there.
-        empty_pos = move2object.empty_pos()
-        empty_point = Point3D(empty_pos[0], empty_pos[1], empty_pos[2])
-        move2object.place_box_at(empty_point)
-    else:
-        move2object.sort_pick_and_place()
+        # detect any stacks using the fixed 0.3 m Y rule
+        overlaps = mover.detect_overlaps(transformed)   # <-- no y_tol argument
+        if not overlaps:
+            print("[DESTACK] No more stacks. Moving to arrange phase.")
+            break
 
+        # pick lowest Y box
+        lowest = mover.min_marker(transformed) 
+        if lowest is None:
+            print("[DESTACK] No boxes found. Aborting.")
+            return
+
+        # deposit onto next empty among 100–102
+        candidates = [
+            m for m in transformed
+            if m["id"] in {100,101,102}
+            and m["id"] not in mover.used_empty_markers
+        ]
+        if not candidates:
+            print("[DESTACK] No empty destack spots (100–102) left. Aborting.")
+            return
+
+        spot = candidates[0]
+        mover.used_empty_markers.append(spot["id"])
+        print(f"[DESTACK] Moving box {lowest['id']} → marker {spot['id']}")
+        mover.pick_box(lowest)
+        mover.place_box_at(spot["point"])
+        mover.move_home()
+        time.sleep(1)
+
+    # ----- Phase 2: Arrange remaining boxes at marker 104 -----
+    print("[ARRANGE] Chain‑stacking final boxes at marker 104")
+    mover.stack_chain_boxes(target_id=104, count=3)
+
+    # ----- Cleanup -----
+    mover.move_home()
+    time.sleep(1)
+    mover.stop_all()
+    print("Program completed. Robot and camera released.")
 
 if __name__ == "__main__":
     main()
+
+

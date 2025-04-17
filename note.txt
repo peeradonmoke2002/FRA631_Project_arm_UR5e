@@ -89,7 +89,7 @@ z=1.494)}, {'id': 3, 'point': Point3D(x=-0.095, y=-0.050, z=1.466)}]
 3
 0.877280712545522 0.29880844787390726 0.11828007643612326
 14
-0.8933949381518251 0.3334072190654045 -0.22712722812202885
+0.8933949381518251 0.3334072190654045 -0.22712722812202885 
 100
 0.6643783728325642 0.3775543769750991 -0.36627226530662876
 101
@@ -193,3 +193,33 @@ Moving to home position...
 RTDEControlInterface: RTDE control script is not running!
 Completed move to marker ID 102
 
+
+
+
+## pose random stack
+
+
+Loading camera configuration from: c:\Users\COMPUTER3\Desktop\fra631-project\FRA631_Project_Dual_arm_UR5\FRA631_Project_Dual_arm_UR5_Calibration\caribration\config\cam.json
+RealSense camera started with aligned color and depth streams (640x480@30fps)
+RealsenseCam initialized with width: 640, height: 480, fps: 30
+Connecting to 3-Finger 192.168.200.11:502[SUCCESS]
+Testing gripper ...Moving to home position...
+[{'id': 13, 'point': Point3D(x=0.057, y=-0.069, z=1.455)}, {'id': 1, 'point': Point3D(x=0.348, y=0.068, z=1.445)}, {'id': 2, 'point': Point3D(x=0.435, y=-0.048, z=1.455)}, {'id': 101, 'point': Point3D(x=0.036, y=-0.442, z=1.574)}, {'id': 3, 'point': Point3D(x=-0.152, y=-0.062, z=1.455)}, {'id': 11, 'point': Point3D(x=-0.344, y=-0.089, z=1.505)}, {'id': 14, 'point': Point3D(x=0.236, y=-0.049, z=1.494)}]
+[{'id': 13, 'point': Point3D(x=0.896, y=0.288, z=-0.033)}, {'id': 1, 'point': Point3D(x=0.762, y=0.298, z=-0.324)}, {'id': 2, 'point': Point3D(x=0.878, y=0.298, z=-0.409)}, {'id': 101, 'point': Point3D(x=1.276, y=0.371, z=-0.010)}, {'id': 3, 'point': Point3D(x=0.887, y=0.285, z=0.175)}, {'id': 11, 'point': Point3D(x=0.917, y=0.330, z=0.366)}, {'id': 14, 'point': Point3D(x=0.881, y=0.334, z=-0.212)}]
+1
+0.7622003231899858 0.2984081538937491 -0.324104360248802
+2
+0.8776595586749891 0.2977554285744366 -0.40942626157861106
+3
+0.8873206741243198 0.28496334467800977 0.17534981407546726
+11
+0.9172835976468059 0.3304416602357285 0.36594493851494125
+13
+0.8961130648622626 0.28815594139618295 -0.03303918501769627
+14
+0.8810536917295522 0.33449166626546756 -0.21248258613687604
+101
+1.2760111017533058 0.3705685755717427 -0.010023403511822689
+Stopping RealSense camera...
+RealSense camera stopped.
+PS C:\Users\COMPUTER3\Desktop\fra631-project> 

@@ -154,7 +154,7 @@ class Move2Object():
         for marker in sorted_markers:
             marker_id = marker["id"]
             point = marker["point"]
-            pose = [point.x, self.FIX_Y, point.z] + self.Test_RPY
+            pose = [point.x, point.y, point.z] + self.Test_RPY
             print(f"\nMoving to marker ID {marker_id} at pose: {pose}")
             
             # 5. สั่งหุ่นยนต์เคลื่อนที่ไปยัง pose ที่กำหนด
