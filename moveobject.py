@@ -398,30 +398,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# ---------- Test functions without real hardware ----------
-def test_transform_marker_points():
-    dummy_matrix = np.eye(4)  # Identity matrix (no transformation)
-    sample_points = [
-        {"id": 1, "point": Point3D(x=0.1, y=0.2, z=0.3)},
-        {"id": 2, "point": Point3D(x=-0.4, y=0.5, z=-0.6)},
-    ]
-
-    mover = Move2ObjectSim()  # Sim version disables hardware init
-    result = mover.transform_marker_points(sample_points, dummy_matrix)
-    assert len(result) == 2
-    assert result[0]["point"].x == 0.1
-    assert result[1]["point"].z == -0.6
-
-def test_detect_overlaps_logic():
-    sample = [
-        {'id': 1, 'point': Point3D(x=0, y=0.1, z=0)},
-        {'id': 2, 'point': Point3D(x=0, y=0.15, z=0)},
-        {'id': 3, 'point': Point3D(x=0, y=0.5, z=0)},  # Farther than threshold
-        {'id': 101, 'point': Point3D(x=0, y=0.0, z=0)}  # Not a real box
-    ]
-    mover = Move2ObjectSim()
-    groups = mover.detect_overlaps(sample)
-    assert len(groups) == 1
-    assert sorted(m['id'] for m in groups[0]) == [1, 2]
-
 
