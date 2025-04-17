@@ -67,8 +67,6 @@ class RobotControl:
         pose = self._ROBOT_CON_.getForwardKinematics(joint_pos,TCP_offset)
         return pose
 
-
-
     def robot_get_ik(self, x: List[float]):
         """
         Calculate inverse kinematics for the robot.
@@ -86,11 +84,6 @@ class RobotControl:
             raise ValueError("Inverse kinematics failed to find a solution for the given pose.")
         
         return joint_robot
-
-
-
-
-
 
         
     # --------------------------
@@ -152,6 +145,14 @@ class RobotControl:
         else:
             self._ROBOT_CON_.speedJ(velocity, acceleration)
 
+    def robo_move_home(self, robot):
+        HOME_POS = [0.701172053107018, 0.184272460738082, 0.1721568294843568,
+                    -1.7318488600590023, 0.686830145115122, -1.731258978679887]
+        SPEED = 0.05
+        print("Moving to home position...")
+        self.robot_moveL(HOME_POS, SPEED)
+        print("Arrived at home position.")
+        time.sleep(1)
 
 
     def my_convert_position_from_left_to_avatar(self,position: list[float]) -> list[float]:
@@ -198,8 +199,7 @@ class RobotControl:
         res[1] += 0.18
 
         return res
-
-            
+       
     def my_transform_position_to_world_ref(self, position: list[float]) -> list[float]:
         """
         Convert position from local robot reference to world (avatar) reference.
