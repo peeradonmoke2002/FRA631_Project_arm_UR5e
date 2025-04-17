@@ -1,5 +1,5 @@
 import pytest
-from moveobject import Move2Object
+from moveobjectsim import Move2Object
 from classrobot.point3d import Point3D
 
 @pytest.fixture

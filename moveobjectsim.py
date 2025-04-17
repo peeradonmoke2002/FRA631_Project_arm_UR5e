@@ -29,7 +29,7 @@ class Move2Object:
         self.FIX_Y = 0.18427318897339476
         self.RPY = [-1.7318443587261685, 0.686842056802218, -1.7312759524010408]
         self.Test_RPY = [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
-        self.config_matrix_path = pathlib.Path(__file__).parent / "config/best_matrix.json"
+        self.config_matrix_path = pathlib.Path(__file__).parent / "FRA631_Project_Dual_arm_UR5_planing/config/best_matrix.json"
         self.robot = robot_movement.RobotControl()
         self.robot.robot_release()
         self.robot.robot_init(self.robot_ip)
@@ -39,56 +39,18 @@ class Move2Object:
         
         self.best_matrix = self.load_matrix()
     
-        self._GRIPPER_LEFT_ = gripper.MyGripper3Finger()
-        self.init_gripper()
+
         # Track which empty markers have been used (markers with IDs 100, 101, 102).
         self.used_empty_markers = []
         
 
-    def init_gripper(self):
-        # Initialize the gripper connection.
-        host = "192.168.200.11"  # Replace with your gripper's IP address.
-        port = 502               # Typically the default Modbus TCP port.
-        print(f"Connecting to 3-Finger {host}:{port}", end="")
-
-        res = self._GRIPPER_LEFT_.my_init(host=host, port=port)
-        if res:
-            print("[SUCCESS]")
-        else:
-            print("[FAILURE]")
-            self._GRIPPER_LEFT_.my_release()
-            exit()
-
-        time.sleep(0.6)  # Slight delay.
-        print("Testing gripper ...", end="")
-        self.close_gripper()  # Test the close command.
-        time.sleep(2)
-        self.open_gripper()   # Test the open command.
-        time.sleep(2)
+ 
 
     def stop_all(self):
         self.robot.robot_release()
         self.cam.stop()
-        self._GRIPPER_LEFT_.my_release()
-
-    def close_gripper(self):
-        """
-        Closes the gripper.
-        """
-        time.sleep(0.6)
-        print("Closing gripper...")
-        self._GRIPPER_LEFT_.my_hand_close()
-        time.sleep(2)
-
-    def open_gripper(self):
-        """
-        Opens the gripper.
-        """
-        print("Opening gripper...")
-        time.sleep(0.6)
-        self._GRIPPER_LEFT_.my_hand_open()
-        time.sleep(2)
-
+       
+ 
     def cam_relasense(self):
         """
         Launches the RealSense camera to obtain the board pose.
@@ -198,7 +160,7 @@ class Move2Object:
         # descend in Y
         self.robot.robot_moveL(pick_pos, self.speed)
         # grip
-        self.close_gripper()
+   
         time.sleep(3)
         # retract back to approach pose
         self.robot.robot_moveL(approach, self.speed)
@@ -224,7 +186,7 @@ class Move2Object:
         self.robot.robot_moveL(place_pos, self.speed)
         time.sleep(3)
         # release
-        self.open_gripper()
+
         time.sleep(1)
         # retract
         self.robot.robot_moveL(approach, self.speed)
