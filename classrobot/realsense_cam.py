@@ -8,8 +8,8 @@ import pathlib
 import sys
 from scipy.spatial.transform import Rotation as R
 import math 
-
-config_path = pathlib.Path(__file__).parent.parent / "/home/tang/ur_robot/FRA631_Project_Dual_arm_UR5_planing/config/cam.json"
+#TODO change this path
+config_path = pathlib.Path(__file__).parent.parent / "FRA631_Project_Dual_arm_UR5_planing/config/cam.json"
 print("Loading camera configuration from:", config_path)
 jsonObj = json.load(open(config_path))
 json_string = str(jsonObj).replace("'", '\"')
