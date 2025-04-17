@@ -1,4 +1,10 @@
-# move2object.py
+
+        #self.empty_pos = [0.388, 0.173, 1.509]
+        #self.safe_pos_right_hand = [-0.46091229133782063, -0.03561778716957069, 0.5597582676128492, -0.026107352593298303, -1.6156259386208272, 0.011223536317220348]
+        #self.HOME_POS_right_hand =    [-0.7000166613125681, 0.17996458960475226, 0.17004862107257468, -0.014724582993124808, -1.5742326761027705, -0.016407326458784333]   
+        #self.HOME_JPOS = [  ]
+
+
 import time
 import cv2 as cv
 import sys
@@ -16,22 +22,26 @@ from classrobot import gripper
 class Move2Object:
     def __init__(self):
 
-        #self.empty_pos = [0.388, 0.173, 1.509]
-        #self.safe_pos_right_hand = [-0.46091229133782063, -0.03561778716957069, 0.5597582676128492, -0.026107352593298303, -1.6156259386208272, 0.011223536317220348]
-        #self.HOME_POS_right_hand =    [-0.7000166613125681, 0.17996458960475226, 0.17004862107257468, -0.014724582993124808, -1.5742326761027705, -0.016407326458784333]   
-        self.HOME_JPOS = [  ]
         self.HOME_POS = [0.701172053107018, 0.184272460738082, 0.1721568294843568,
                          -1.7318488600590023, 0.686830145115122, -1.731258978679887]
-        self.robot_ip = "192.168.200.10"
+        self.robot_left_ip = "192.168.200.10"
+        self.robot_right_ip = "192.168.200.10"
         self.speed = 0.025
         self.acceleration = 1.0
-        self.FIX_Y = 0.18427318897339476
+        self.FIX_Y_LEFT = 0.18427318897339476
         self.RPY = [-1.7318443587261685, 0.686842056802218, -1.7312759524010408]
-        self.Test_RPY = [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+        self.Test_RPY_LEFT = [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
         self.config_matrix_path = pathlib.Path(__file__).parent / "config/best_matrix.json"
-        self.robot = robot_movement.RobotControl()
-        self.robot.robot_release()
-        self.robot.robot_init(self.robot_ip)
+
+        self.robot_left = robot_movement.RobotControl()
+        self.robot_right = robot_movement.RobotControl()
+
+        self.robot_left.robot_release()
+        self.robot_right.robot_release()
+
+        self.robot_left.robot_init(self.robot_left_ip)
+        self.robot_right.robot_init(self.robot_right_ip)
+
         self.cam = realsense_cam.RealsenseCam()
  
         self.recive_pos = [ ]
@@ -66,7 +76,8 @@ class Move2Object:
         time.sleep(2)
 
     def stop_all(self):
-        self.robot.robot_release()
+        self.robot_left.robot_release()
+        self.robot_right.robot_release()
         self.cam.stop()
         self._GRIPPER_LEFT_.my_release()
 
@@ -118,17 +129,34 @@ class Move2Object:
 
     def get_robot_TCP(self):
         """
-        Connects to the robot and retrieves the current TCP (end-effector) position.
+        Connects to the robot_left and retrieves the current TCP (end-effector) position.
         Returns a 3-element list: [x, y, z].
         """
-        pos = self.robot.robot_get_position()
-        pos_3d = self.robot.convert_gripper_to_maker(pos)
+        pos = self.robot_left.robot_get_position()
+        pos_3d = self.robot_left.convert_gripper_to_maker(pos)
         print("Robot TCP position:", pos_3d)
         return pos_3d
 
     def move_home(self):
         print("Moving to home position...")
-        self.robot.robot_moveL(self.HOME_POS, self.speed)
+        self.robot_left.robot_moveL(self.HOME_POS, self.speed)
+
+    def ensure_home_position(self, tol=1e-3):
+        """
+        Check current joint angles against HOME_JPOS.
+        If any joint differs by more than tol, perform a joint move to HOME_JPOS.
+        """
+        # Retrieve current joint positions (6-element list)
+        current_joints = self.robot_left.robot_get_actual_joint_positions()
+        # Compute absolute differences
+        diffs = [abs(c - h) for c, h in zip(current_joints, self.HOME_JPOS)]
+        if any(d > tol for d in diffs):
+            print("Joints not at home. Moving to HOME_JPOS:", self.HOME_JPOS)
+            # Joint-space move
+            self.robot_left.robot_moveJ(self.HOME_JPOS, self.speed, self.acceleration)
+        else:
+            print("Already at HOME_JPOS. No movement needed.")
+
 
     def transform_marker_points(self, marker_points, transformation_matrix):
         """
@@ -187,20 +215,20 @@ class Move2Object:
         """
         p = marker["point"]
      
-        approach = [p.x + 0.05, self.FIX_Y, p.z] + self.Test_RPY
-        pick_pos = [p.x + 0.05, p.y,p.z] + self.Test_RPY
+        approach = [p.x + 0.05, self.FIX_Y_LEFT, p.z] + self.Test_RPY_LEFT
+        pick_pos = [p.x + 0.05, p.y,p.z] + self.Test_RPY_LEFT
 
         print(f"[PICK] Marker ID {marker['id']} at (x={p.x}, y={p.y}, z={p.z})")
         # move above in X–Z
-        self.robot.robot_moveL(approach, self.speed)
+        self.robot_left.robot_moveL(approach, self.speed)
         time.sleep(3)
         # descend in Y
-        self.robot.robot_moveL(pick_pos, self.speed)
+        self.robot_left.robot_moveL(pick_pos, self.speed)
         # grip
         self.close_gripper()
         time.sleep(3)
         # retract back to approach pose
-        self.robot.robot_moveL(approach, self.speed)
+        self.robot_left.robot_moveL(approach, self.speed)
         time.sleep(3)
 
     def place_box(self, marker_point):
@@ -211,22 +239,22 @@ class Move2Object:
         """
         p = marker_point
         # approach pose (X–Z move, Y fixed)
-        approach = [p.x, self.FIX_Y, p.z] + self.Test_RPY
+        approach = [p.x, self.FIX_Y_LEFT, p.z] + self.Test_RPY_LEFT
         # actual place pose
-        place_pos = [p.x, p.y-0.077,p.z] + self.Test_RPY
+        place_pos = [p.x, p.y-0.077,p.z] + self.Test_RPY_LEFT
 
         print(f"[PLACE] at marker pos (x={p.x}, y={p.y}, z={p.z})")
         # move above in X–Z
-        self.robot.robot_moveL(approach, self.speed)
+        self.robot_left.robot_moveL(approach, self.speed)
         time.sleep(1)
         # descend in Y
-        self.robot.robot_moveL(place_pos, self.speed)
+        self.robot_left.robot_moveL(place_pos, self.speed)
         time.sleep(3)
         # release
         self.open_gripper()
         time.sleep(1)
         # retract
-        self.robot.robot_moveL(approach, self.speed)
+        self.robot_left.robot_moveL(approach, self.speed)
         time.sleep(1)
 
     def find_next_stack_position(self, current_id, sorted_markers):
@@ -347,6 +375,8 @@ class Move2Object:
 def main():
     mover = Move2Object()
     mover.move_home()
+    time.sleep(2)
+    mover.ensure_home_position()
     time.sleep(2)
 
     # ----- Phase 1: Destack onto markers 100,101,102 only -----
