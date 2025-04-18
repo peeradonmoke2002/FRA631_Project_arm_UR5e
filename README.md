@@ -29,9 +29,9 @@ source venv/bin/activate
 > [!WARNING]
 > Make sure to activate the venv before installing the requirements
 > ```bash
-# for windows
+> # for windows
 > venv/Scripts/Activate.ps1
-# for linux or mac
+> # for linux or mac
 > source venv/bin/activate
 > ```
 > it shoud be like this
@@ -51,9 +51,11 @@ If you are install in robot
 
 
 ## Note
-For update submodules
+For update submodules if repo calibration have update
 
+step 1 run below command 
 ```bash
 git submodule update --remote
 ```
+step 2 commit this repo
 
