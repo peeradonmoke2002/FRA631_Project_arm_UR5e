@@ -19,16 +19,17 @@ class Move2Object:
         #self.empty_pos = [0.388, 0.173, 1.509]
         #self.safe_pos_right_hand = [-0.46091229133782063, -0.03561778716957069, 0.5597582676128492, -0.026107352593298303, -1.6156259386208272, 0.011223536317220348]
         #self.HOME_POS_right_hand =    [-0.7000166613125681, 0.17996458960475226, 0.17004862107257468, -0.014724582993124808, -1.5742326761027705, -0.016407326458784333]   
-        self.HOME_JPOS = [  ]
+        # self.HOME_JPOS = [  ]
         self.HOME_POS = [0.701172053107018, 0.184272460738082, 0.1721568294843568,
                          -1.7318488600590023, 0.686830145115122, -1.731258978679887]
-        # self.robot_ip = "192.168.200.10"
-        self.robot_ip = "172.17.0.2"
-        self.speed = 0.025
+        self.robot_ip = "192.168.200.10"
+        # self.robot_ip = "172.17.0.2"
+        self.speed = 0.03
         self.acceleration = 1.0
         self.FIX_Y = 0.18427318897339476
         self.RPY = [-1.7318443587261685, 0.686842056802218, -1.7312759524010408]
-        self.Test_RPY = [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+        self.medium_RPY = [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+        self.high_RPY =  [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
         self.config_matrix_path = pathlib.Path(__file__).parent / "config/best_matrix.json"
         self.robot = robot_movement.RobotControl()
         self.robot.robot_release()
@@ -72,21 +73,23 @@ class Move2Object:
         self._GRIPPER_LEFT_.my_release()
 
     def close_gripper(self):
-        """
-        Closes the gripper.
-        """
+        gr = gripper.MyGripper3Finger()
+        # Initialize the gripper
+        gr.my_init(host="192.168.200.11", port=502)
         time.sleep(0.6)
-        print("Closing gripper...")
-        self._GRIPPER_LEFT_.my_hand_close()
+        # Test closing
+        gr.my_hand_close()
         time.sleep(2)
+      
+        
 
     def open_gripper(self):
-        """
-        Opens the gripper.
-        """
-        print("Opening gripper...")
+        gr = gripper.MyGripper3Finger()
+        # Initialize the gripper
+        gr.my_init(host="192.168.200.11", port=502)
         time.sleep(0.6)
-        self._GRIPPER_LEFT_.my_hand_open()
+        # Test closing
+        gr.my_hand_open()
         time.sleep(2)
 
     def cam_relasense(self):
@@ -164,7 +167,25 @@ class Move2Object:
         bottom = min(candidates, key=lambda m: m["point"].y)
         print(f"Marker with lowest z: ID {bottom['id']} (z={bottom['point'].y})")
         return bottom
-    
+
+    def box_distances(self, markers):
+        """
+        Print the distance between all pairs of real boxes (ID < 100)
+        using only X and Z coordinates.
+        """
+        real_boxes = [m for m in markers if m["id"] < 100]
+
+        for i in range(len(real_boxes)):
+            for j in range(i + 1, len(real_boxes)):
+                id1 = real_boxes[i]["id"]
+                id2 = real_boxes[j]["id"]
+                p1 = real_boxes[i]["point"]
+                p2 = real_boxes[j]["point"]
+                dx = p1.x - p2.x
+                dz = p1.z - p2.z
+                distance = (dx**2 + dz**2)**0.5
+                print(f"ID {id1}-{id2}: x{dx:+.3f} z{dz:+.3f}")
+
 
     def max_marker(self, transformed_points):
         """
@@ -188,8 +209,8 @@ class Move2Object:
         """
         p = marker["point"]
      
-        approach = [p.x + 0.05, self.FIX_Y, p.z] + self.Test_RPY
-        pick_pos = [p.x + 0.05, p.y,p.z] + self.Test_RPY
+        approach = [p.x + 0.05, self.FIX_Y, p.z] + self.medium_RPY
+        pick_pos = [p.x + 0.05, p.y,p.z] + self.medium_RPY
 
         print(f"[PICK] Marker ID {marker['id']} at (x={p.x}, y={p.y}, z={p.z})")
         # move above in X–Z
@@ -212,18 +233,17 @@ class Move2Object:
         """
         p = marker_point
         # approach pose (X–Z move, Y fixed)
-        approach = [p.x, self.FIX_Y, p.z] + self.Test_RPY
+        approach = [p.x+0.05, self.FIX_Y, p.z] + self.medium_RPY
         # actual place pose
-        place_pos = [p.x, p.y-0.077,p.z] + self.Test_RPY
+        place_pos = [p.x+0.05, p.y-0.054,p.z] + self.medium_RPY
 
         print(f"[PLACE] at marker pos (x={p.x}, y={p.y}, z={p.z})")
         # move above in X–Z
         self.robot.robot_moveL(approach, self.speed)
-        time.sleep(1)
+        time.sleep(3)
         # descend in Y
         self.robot.robot_moveL(place_pos, self.speed)
-        time.sleep(3)
-        # release
+        time.sleep(0.6)
         self.open_gripper()
         time.sleep(1)
         # retract
@@ -265,7 +285,7 @@ class Move2Object:
         If a marker has already been used for placement, it is skipped.
         Returns the marker dictionary if found; otherwise, returns None.
         """
-        empty_ids = {100, 101, 102, 103}
+        empty_ids = {100, 101, 102}
         for marker in transformed_points:
             if marker["id"] in empty_ids and marker["id"] not in self.used_empty_markers:
                 self.used_empty_markers.append(marker["id"])
@@ -278,82 +298,73 @@ class Move2Object:
         """
         Stack the lowest-ID boxes in sequence:
         1) First box goes to the position of marker `target_id`.
-        2) Each subsequent box goes to the original position of the previously stacked box’s marker.
+        2) Each subsequent box goes to the position of the previously stacked box’s marker,
+        using up‑to‑date camera data at each step.
         """
-        raw_pts     = self.cam_relasense()
-        transformed = self.transform_marker_points(raw_pts, self.best_matrix)
-        # Build a map from marker ID → Point3D
-        point_map = {m['id']: m['point'] for m in transformed}
+        # Gather the first N box markers by ascending ID
+        raw_pts_all  = self.cam_relasense()
+        transformed_all = self.transform_marker_points(raw_pts_all, self.best_matrix)
+        box_markers = sorted([m for m in transformed_all if m['id'] < 100],
+                            key=lambda m: m['id'])[:count]
 
-        # Gather all box markers (IDs <100), sort by ascending ID, and take the first `count`
-        box_markers = sorted([m for m in transformed if m['id'] < 100],
-                             key=lambda m: m['id'])[:count]
-        # Chain‐stack 
         prev_id = target_id
         for marker in box_markers:
-            box_id = marker['id']
+            # Refresh marker map right before placing
+            raw_pts     = self.cam_relasense()
+            transformed = self.transform_marker_points(raw_pts, self.best_matrix)
+            point_map   = {m['id']: m['point'] for m in transformed}
 
-            # Make sure we know the placement point
             if prev_id not in point_map:
-                print(f"[STACK] Cannot find position for marker {prev_id}, abort chain.")
+                print(f"[STACK] Cannot find updated position for marker {prev_id}, abort chain.")
                 return
 
             place_pt = point_map[prev_id]
-            print(f"[STACK] Picking box {box_id} → placing at marker {prev_id} position")
+            print(f"[STACK] Picking box {marker['id']} → placing at marker {prev_id} position")
+
+            # pick the box
             self.pick_box(marker)
+            # place it at the freshly read position
             self.place_box(place_pt)
+            # go home
             self.move_home()
             time.sleep(1)
-            #Now the next box uses this box’s original marker ID
-            prev_id = box_id 
+
+            # next time, we’ll stack onto the just-picked box’s ID
+            prev_id = marker['id']
 
     def detect_overlaps(self, pts):
         """
-        Group real boxes (ID < 100) whose Y‑coordinate difference is < 0.3 m.
-        Returns a list of groups; each group is a list of markers considered
-        to be in the same stack purely by their Y proximity.
+        Consider any real box (ID < 100) with Y-coordinate > 0.3 m as part of a stack.
+        Returns a single group containing all such markers, or an empty list if none.
         """
-        STACK_Y_DIFF = 0.3
+        STACK_Y_THRESHOLD = 0.3
 
-        # 1) filter down to just the real boxes
-        boxes = [m for m in pts if m["id"] < 100]
+        # 1) Filter down to just the real boxes
+        real_boxes = [m for m in pts if m["id"] < 100]
 
-        groups = []
-        used = set()
+        # 2) Collect those whose Y exceeds the threshold
+        stacked = [m for m in real_boxes if m["point"].y < STACK_Y_THRESHOLD]
 
-        for i, base in enumerate(boxes):
-            if i in used:
-                continue
-
-            group = [base]
-            by = base["point"].y
-
-            for j, other in enumerate(boxes[i+1:], start=i+1):
-                if j in used:
-                    continue
-
-                oy = other["point"].y
-                if abs(by - oy) < STACK_Y_DIFF:
-                    group.append(other)
-                    used.add(j)
-
-            if len(group) > 1:
-                used.add(i)
-                groups.append(group)
-
-        return groups
+        # 3) Return as one group if non‑empty, else no groups
+        return [stacked] if stacked else []
 
     
 
 def main():
     mover = Move2Object()
     mover.move_home()
+
     time.sleep(2)
 
     # ----- Phase 1: Destack onto markers 100,101,102 only -----
     while True:
         raw_pts     = mover.cam_relasense()
         transformed = mover.transform_marker_points(raw_pts, mover.best_matrix)
+        mover.box_distances(transformed)
+        print("Transformed markers and poses:")
+        for m in transformed:
+            p = m["point"]
+            print(f"ID {m['id']}: x={p.x:.4f}, y={p.y:.4f}, z={p.z:.4f}")
 
         # detect any stacks using the fixed 0.3 m Y rule
         overlaps = mover.detect_overlaps(transformed)   # <-- no y_tol argument
@@ -370,7 +381,7 @@ def main():
         # deposit onto next empty among 100–102
         candidates = [
             m for m in transformed
-            if m["id"] in {100,101,102,103}
+            if m["id"] in {100,101,102}
             and m["id"] not in mover.used_empty_markers
         ]
         if not candidates:
