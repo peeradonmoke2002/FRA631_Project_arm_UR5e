@@ -40,7 +40,9 @@ class PrintPoseCam():
         # print("Camera measurement:", point3d)
         if image_marked is not None:
             cv.imshow("Detected Board", image_marked)
-            cv.waitKey(5000)
+            while True:
+                if cv.waitKey(1) & 0xFF == ord('q'):
+                    break
             cv.destroyAllWindows()
         return point3d
     

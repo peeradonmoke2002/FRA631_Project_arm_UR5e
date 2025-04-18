@@ -8,12 +8,16 @@ import pathlib
 import sys
 from scipy.spatial.transform import Rotation as R
 import math 
+from IPython.display import display, Image
 
-config_path = pathlib.Path(__file__).parent.parent / "FRA631_Project_Dual_arm_UR5_Calibration/caribration/config/cam.json"
-print("Loading camera configuration from:", config_path)
-jsonObj = json.load(open(config_path))
-json_string = str(jsonObj).replace("'", '\"')
 
+# global variables
+CONFIG_PATH = pathlib.Path(__file__).parent.parent / "FRA631_Project_Dual_arm_UR5_Calibration/caribration/config/cam.json"
+print("Loading camera configuration from:", CONFIG_PATH)
+jsonObj = json.load(open(CONFIG_PATH))
+CAM_CONFIG_JSON = str(jsonObj).replace("'", '\"')
+CONFIG_MATRIX_PATH = pathlib.Path(__file__).parent.parent / "FRA631_Project_Dual_arm_UR5_Calibration/caribration/config/best_matrix.json"
+print("Loading camera matrix from:", CONFIG_MATRIX_PATH)
 
 
 class RealsenseCam:
@@ -28,7 +32,9 @@ class RealsenseCam:
         self.align_depth = None 
         self.imu_pipe = None
         self.imu_config = None
+        self.best_matrix = None
         self.init_cam()
+        self.load_matrix()
         print("RealsenseCam initialized with width: {}, height: {}, fps: {}".format(width, height, fps))
   
     def init_cam(self):
@@ -72,7 +78,7 @@ class RealsenseCam:
                 advnc_mode.toggle_advanced_mode(True)
 
             # Load settings from config JSON.
-            advnc_mode.load_json(json_string)
+            advnc_mode.load_json(CAM_CONFIG_JSON)
 
             print(f"RealSense camera started with aligned color and depth streams "
                 f"({self.width}x{self.height}@{self.fps}fps)")
@@ -282,6 +288,88 @@ class RealsenseCam:
             else:
                 print("Pipeline is already stopped or not initialized.")
  
+
+    def cam_capture_marker(self, aruco_dict_type):
+        """
+        Launches the RealSense camera to obtain the board pose.
+        Returns the board pose (camera coordinate system) as a Point3D instance.
+        """
+        # cv2.aruco.DICT_5X5_1000
+        aruco_dict = cv2.aruco.getPredefinedDictionary(aruco_dict_type)
+        image_marked, point3d = self.get_all_board_pose(aruco_dict)
+        # print("Camera measurement:", point3d)
+        if image_marked is not None:
+            cv2.imshow("Detected Board", image_marked)
+            cv2.waitKey(5000)
+            cv2.destroyAllWindows()
+        return point3d
+    
+    def cam_capture_marker_jupyter(self, aruco_dict_type):
+        """
+        Launches the RealSense camera to obtain the board pose.
+        Returns the board pose (camera coordinate system) as a Point3D instance.
+        """
+        import matplotlib.pyplot as plt
+
+        # cv2.aruco.DICT_5X5_1000
+        aruco_dict = cv2.aruco.getPredefinedDictionary(aruco_dict_type)
+        image_marked, point3d = self.get_all_board_pose(aruco_dict)
+        # print("Camera measurement:", point3d)
+        if image_marked is not None:
+            plt.figure(figsize=(10, 6))
+            plt.imshow(cv2.cvtColor(image_marked, cv2.COLOR_BGR2RGB))
+            plt.axis('off')
+            plt.show()
+        return point3d
+    
+    def load_matrix(self):
+        """
+        Loads the transformation matrix from a file.
+        Returns the transformation matrix.
+        """
+        try:
+            with open(CONFIG_MATRIX_PATH, 'r') as f:
+                loaded_data = json.load(f)
+                name = loaded_data["name"]
+                print("Loaded matrix name:", name)
+                # Convert the list to a numpy array.
+                self.best_matrix = np.array(loaded_data["matrix"])
+
+        except FileNotFoundError:
+            print("Transformation matrix file not found.")
+            return None
+
+    def transform_marker_points(self, marker_points):
+        """
+        Applies a 4x4 transformation matrix to a list of marker points.
+        
+        Parameters:
+        - marker_points: A list of dictionaries, each in the format:
+                {"id": <marker_id>, "point": Point3D(x, y, z)}
+        - transformation_matrix: A 4x4 numpy array representing the transformation.
+        
+        Returns:
+        - transformed_points: A list of dictionaries, each with the marker id and
+            its transformed point as a Point3D.
+        """
+        if self.best_matrix is None:
+            print("No transformation matrix loaded.")
+            return None
+        
+        transformed_points = []
+        for marker in marker_points:
+            marker_id = marker["id"]
+            pt = marker["point"]
+            # Create the homogeneous coordinate (4,1) by appending a 1.
+            homo_pt = np.array([pt.x, pt.y, pt.z, 1], dtype=np.float32).reshape(4, 1)
+            # Multiply by the transformation matrix.
+            transformed_homo = self.best_matrix @ homo_pt
+            # Convert back to Cartesian coordinates (assuming transformation_matrix is affine).
+            transformed_pt = transformed_homo[:3, 0] / transformed_homo[3, 0]  # in case scale != 1
+            # Create a new Point3D object for the transformed point.
+            transformed_point = Point3D(transformed_pt[0], transformed_pt[1], transformed_pt[2])
+            transformed_points.append({"id": marker_id, "point": transformed_point})
+        return transformed_points
 
     def restart(self):
         """

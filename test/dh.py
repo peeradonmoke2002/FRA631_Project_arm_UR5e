@@ -1,8 +1,8 @@
-import numpy as np
 import roboticstoolbox as rtb
 from spatialmath import SE3
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # สำหรับการ plot 3D
+import numpy as np
 import rtde_receive
 # ================= UR5e Forward Kinematics =================
 L1 = rtb.RevoluteDH(d=0.1625, a=0,       alpha=np.pi/2)
@@ -15,15 +15,15 @@ L6 = rtb.RevoluteDH(d=0.0996, a=0,       alpha=0)
 robot = rtb.DHRobot([L1, L2, L3, L4, L5, L6], name='UR5e')
 
 
-# robot_ip = "192.168.200.10"
-# rtde_r = rtde_receive.RTDEReceiveInterface(robot_ip, 30004)
+robot_ip = "192.168.200.10"
+rtde_r = rtde_receive.RTDEReceiveInterface(robot_ip, 30004)
 
 
 # define joint angles from teach pendant degree
 
-# joint_deg = rtde_r.getActualQ()
-# q = np.array(rtde_r.getActualQ())
-q =  [0.7197909355163574, -1.9388791523375453, -2.0522477626800537, -2.2783595524229945, -0.8750937620746058, 2.3630921840667725]
+# joint_deg = [41.24, -111.09, -117.58, -130.54, -50.14, 135.40]
+joint_deg = rtde_r.getActualQ()
+q = np.array(rtde_r.getActualQ())
 
 
 # calculate forward kinematics (flange pose) in robot base frame
@@ -49,10 +49,10 @@ print(f"Yaw:   {rpy_tcp[2]:.3f}°")
 # ================= World Frame Transformation =================
 
 
-T_world = SE3(0, 0.4, -0.0575) * SE3.Rx(np.deg2rad(90)) * SE3.Ry(0) * SE3.Rz(0)
+T_world = SE3(0.06, 0.4, 0) * SE3.Rx(1.209) * SE3.Ry(-1.209) * SE3.Rz(1.209)
 
 T_inv = T_world.inv()
-T_TCP_world = T_inv * T_TCP
+T_TCP_world = T_TCP
 
 rpy_tcp_world = np.degrees(T_TCP_world.rpy())
 
@@ -64,3 +64,4 @@ print(f"Roll:  {rpy_tcp_world[0]:.3f}°")
 print(f"Pitch: {rpy_tcp_world[1]:.3f}°")
 print(f"Yaw:   {rpy_tcp_world[2]:.3f}°")
 
+print(joint_deg )

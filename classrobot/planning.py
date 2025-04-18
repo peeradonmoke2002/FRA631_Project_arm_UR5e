@@ -6,81 +6,14 @@ import pandas as pd
 from spatialmath import SE3
 import os
 import csv
+from scipy.spatial.transform import Rotation as R, Slerp
 import numpy as np
-from math import cos, sin
+
 
 class Planning:
 
     def __init__(self, dt=0.01):
         self.dt = dt
-
-    def dh(self, alpha, a, d, theta):
-        T = np.array([[cos(theta), -sin(theta)*cos(alpha), sin(theta)*sin(alpha), a*cos(theta)],
-                    [sin(theta), cos(theta)*cos(alpha), -cos(theta)*sin(alpha), a*sin(theta)],
-                    [0, sin(alpha), cos(alpha), d],
-                    [0, 0, 0, 1]])
-        return T
-    
-    def fk_ur(self, q: np.ndarray, dh_para: np.ndarray) -> np.ndarray:
-        """
-        Forward Kinematics for UR type robots
-        :param: dh_para: DH-Transformation, table of dh parameters (alpha, a, d, theta)
-        :param: q: Gelenkwinkel
-        """
-        T_0_6 = np.zeros((4, 4))
-
-        dh_params_count = dh_para.shape[1]
-        number_dh_trafos = dh_para.shape[0]
-
-        if dh_params_count != 4:
-            print("Wrong number of dh parameters!")
-            return None
-
-        trafo_matrizes = []
-
-        for i in range(number_dh_trafos):
-            trafo_matrizes.append(self.dh(dh_para[i, 0], dh_para[i, 1], dh_para[i, 2], q[i]))
-
-        if len(trafo_matrizes) != 0:
-            for i in range(len(trafo_matrizes) - 1):
-                if i == 0:
-                    T_0_6 = trafo_matrizes[i] @ trafo_matrizes[i+1]
-                else:
-                    T_0_6 = T_0_6 @ trafo_matrizes [i+1]
-
-        return T_0_6
-    
-    def jacobian_matrix(self,q: np.ndarray, dh_para: np.ndarray, runden = False) -> np.array:       # code in the video decription
-
-        Jacobian = np.zeros((6, 6))
-
-        T_0_6 = self.fk_ur(q, dh_para)               # transformation matrix of the system (forward kinematics)
-        point_end = T_0_6[0:3, 3]               # calculate the TCP origin coordinates
-
-        T_0_i = np.array([[1, 0, 0, 0],         # create T_0_0; needed for for-loop
-                        [0, 1, 0, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 0, 1]])
-
-        for i in range(6):
-
-            if i == 0:                          # kinematic chain
-                T_0_i = T_0_i                   # adds velocity of previous joint to current joint
-            else:                               # using the DH parameters
-                T = self.dh(dh_para[i-1, 0], dh_para[i-1, 1], dh_para[i-1, 2], q[i-1])
-                T_0_i = np.dot(T_0_i, T)
-
-            z_i = T_0_i[0:3, 2]                 # gets the vectors p_i and z_i for the Jacobian from the last two coloums of the transformation matrices  
-            p_i = T_0_i[0:3, 3]
-            r = point_end - p_i
-            Jacobian[0:3, i] = np.cross(z_i, r) # linear portion
-            Jacobian[3:6, i] = z_i              # angular portion             ## each time the loop is passed, another column of the Jacobi matrix is filled
-
-            if runden:
-                Jacobian[0:3, i] = np.round(np.cross(z_i, r), 3)              # round if True
-                Jacobian[3:6, i] = np.round(z_i, 3)
-
-        return Jacobian
     
     def cubic_trajectory(self, p0, p1, v0, v1, T):
         p0, p1, v0, v1 = map(np.array, (p0, p1, v0, v1))
@@ -93,34 +26,338 @@ class Planning:
         acc = 6 * a * t + 2 * b
         return t.flatten(), pos, vel, acc
 
-    def compute_traj_time(self, d, v_tool, a_max):
-        if d < (v_tool ** 2) / a_max:
-            T_total = 2 * np.sqrt(d / a_max)
-            profile = 'Triangular'
-        else:
-            T_accel = v_tool / a_max
-            d_accel = 0.5 * a_max * T_accel ** 2
-            d_ramps = 2 * d_accel
-            T_total = 2 * T_accel + (d - d_ramps) / v_tool
-            profile = 'Trapezoidal'
-        return T_total, profile
+    def cubic_trajectory_v1(self, p0, p1, v0, v1, T, dt):
+        # ensure numpy arrays
+        p0, p1, v0, v1 = map(np.asarray, (p0, p1, v0, v1))
+        # time vector
+        t = np.arange(0, T + 1e-8, dt)        # include T
+        ts = t.reshape(-1, 1)                 # for broadcasting
+        
+        # coefficients
+        a0 = p0
+        a1 = v0
+        a2 =  3*(p1 - p0)/T**2 - (2*v0 + v1)/T
+        a3 = -2*(p1 - p0)/T**3 + (v0 + v1)/T**2
+        
+        # evaluate
+        pos = a0 + a1*ts + a2*ts**2 + a3*ts**3
+        vel =      a1   + 2*a2*ts   + 3*a3*ts**2
+        acc =           2*a2       + 6*a3*ts
 
-    def pose_to_matrix(self, pose):
-        tx, ty, tz, roll, pitch, yaw = pose
-        Rz = np.array([[np.cos(yaw), -np.sin(yaw), 0],
-                       [np.sin(yaw),  np.cos(yaw), 0],
-                       [0, 0, 1]])
-        Ry = np.array([[np.cos(pitch), 0, np.sin(pitch)],
-                       [0, 1, 0],
-                       [-np.sin(pitch), 0, np.cos(pitch)]])
-        Rx = np.array([[1, 0, 0],
-                       [0, np.cos(roll), -np.sin(roll)],
-                       [0, np.sin(roll),  np.cos(roll)]])
-        R = Rz @ Ry @ Rx
-        T = np.eye(4)
-        T[:3, :3] = R
-        T[:3, 3] = [tx, ty, tz]
-        return T
+        return t.flatten(), pos, vel, acc
+
+    
+    def cubic_trajectory_v2(self, p0, p1, v0, v1, q0, q1, T):
+
+        # --- Translation (cubic) ---
+        p0, p1, v0, v1 = map(np.array, (p0, p1, v0, v1))
+        num_steps = int(np.ceil(T / self.dt)) + 1
+        t = np.linspace(0, T, num_steps).reshape(-1, 1)
+
+        a = (2 * (p0 - p1) + (v0 + v1) * T) / (T ** 3)
+        b = (3 * (p1 - p0) - (2 * v0 + v1) * T) / (T ** 2)
+
+        pos = a * t**3 + b * t**2 + v0 * t + p0
+        vel = 3 * a * t**2 + 2 * b * t + v0
+        acc = 6 * a * t + 2 * b
+
+        # --- Orientation (SLERP) ---
+        # Normalize quaternions
+        q0 = np.asarray(q0) / np.linalg.norm(q0)
+        q1 = np.asarray(q1) / np.linalg.norm(q1)
+
+        # Build SLERP object
+        key_rots = R.from_quat([q0, q1])
+        slerp = Slerp([0.0, 1.0], key_rots)
+
+        # Normalize time to [0,1]
+        tau = t.flatten() / T
+
+        # Interpolate orientations
+        orients = slerp(tau).as_quat()
+
+        return t.flatten(), pos, vel, acc, orients
+    
+
+    def cubic_trajectory_v3(self, p0, p1, v0, v1, rpy0, rpy1, T):
+        """
+        Generate a cubic (3rd-order) trajectory for translation and SLERP for orientation,
+        using RPY inputs and returning RPY outputs.
+
+        Parameters:
+        -----------
+        p0   : array_like, shape (3,)
+               Start position [x, y, z]
+        p1   : array_like, shape (3,)
+               End position [x, y, z]
+        v0   : array_like, shape (3,)
+               Start velocity [vx, vy, vz]
+        v1   : array_like, shape (3,)
+               End velocity [vx, vy, vz]
+        rpy0 : array_like, shape (3,)
+               Start orientation as roll, pitch, yaw (rad)
+        rpy1 : array_like, shape (3,)
+               End orientation as roll, pitch, yaw (rad)
+        T    : float
+               Total trajectory time
+
+        Returns:
+        --------
+        t        : ndarray, shape (N,)
+                   Time vector
+        pos      : ndarray, shape (N,3)
+                   Positions along the cubic trajectory
+        vel      : ndarray, shape (N,3)
+                   Velocities along the cubic trajectory
+        acc      : ndarray, shape (N,3)
+                   Accelerations along the cubic trajectory
+        rpy_traj : ndarray, shape (N,3)
+                   SLERP-interpolated roll, pitch, yaw angles (rad)
+        """
+        # Translation (cubic)
+        p0, p1, v0, v1 = map(np.array, (p0, p1, v0, v1))
+        num_steps = int(np.ceil(T / self.dt)) + 1
+        t = np.linspace(0, T, num_steps).reshape(-1, 1)
+
+        a = (2 * (p0 - p1) + (v0 + v1) * T) / (T ** 3)
+        b = (3 * (p1 - p0) - (2 * v0 + v1) * T) / (T ** 2)
+
+        pos = a * t**3 + b * t**2 + v0 * t + p0
+        vel = 3 * a * t**2 + 2 * b * t + v0
+        acc = 6 * a * t + 2 * b
+
+        # Orientation (SLERP) with RPY I/O
+        # Convert RPY to quaternions
+        q0 = R.from_euler('xyz', rpy0, degrees=False).as_quat()
+        q1 = R.from_euler('xyz', rpy1, degrees=False).as_quat()
+
+        # Build SLERP
+        key_rots = R.from_quat([q0, q1])
+        slerp = Slerp([0.0, 1.0], key_rots)
+        tau = t.flatten() / T
+
+        # Interpolate and convert back to RPY
+        quats = slerp(tau).as_quat()
+        rpy_traj = R.from_quat(quats).as_euler('xyz', degrees=False)
+
+        return t.flatten(), pos, vel, acc, rpy_traj
+    
+    def quintic_trajectory(self, p0, p1, v0, v1, q0, q1, T):
+        """
+        Generate a quintic (5th-order) SE(3) trajectory from p0 to p1 and q0 to q1
+        with boundary conditions on position, velocity, and zero acceleration.
+        
+        Returns:
+        t       – (N,) time vector
+        pos     – (N, len(p0)) positions
+        vel     – (N, len(p0)) velocities
+        acc     – (N, len(p0)) accelerations
+        orients – (N,4) quaternions (x,y,z,w)
+        """
+        # Ensure inputs are numpy arrays
+        p0, p1, v0, v1 = map(np.array, (p0, p1, v0, v1))
+        q0 = np.asarray(q0) / np.linalg.norm(q0)
+        q1 = np.asarray(q1) / np.linalg.norm(q1)
+
+        # Time vector
+        num_steps = int(np.ceil(T / self.dt)) + 1
+        t = np.linspace(0, T, num_steps)
+        ts = t.reshape(-1, 1)
+
+        # Quintic translation coefficients (zero accel endpoints)
+        a0 = p0
+        a1 = v0
+        a2 = np.zeros_like(p0)
+
+        # Powers of T
+        T2, T3, T4, T5 = T**2, T**3, T**4, T**5
+
+        # Solve for a3, a4, a5
+        M = np.array([
+            [   T3,    T4,    T5],
+            [ 3*T2,  4*T3,  5*T4],
+            [ 6*T , 12*T2, 20*T3]
+        ])
+        M_inv = np.linalg.inv(M)
+        dp = p1 - p0
+        rhs = np.vstack([
+            dp - v0 * T,
+            v1 - v0,
+            np.zeros_like(p0)
+        ])
+        a3, a4, a5 = M_inv.dot(rhs)
+
+        # Evaluate position, velocity, acceleration
+        pos = a0 + a1*ts + a2*ts**2 + a3*ts**3 + a4*ts**4 + a5*ts**5
+        vel =    a1 + 2*a2*ts   + 3*a3*ts**2 + 4*a4*ts**3 + 5*a5*ts**4
+        acc =       2*a2       + 6*a3*ts     +12*a4*ts**2  +20*a5*ts**3
+
+        return t, pos, vel, acc
+    
+
+    def quintic_trajectory_v2(self, p0, p1, v0, v1, rpy0, rpy1, T):
+        """
+        Generate a quintic (5th-order) SE(3) trajectory from p0 to p1
+        and from rpy0 to rpy1, with boundary conditions on position,
+        velocity, and zero acceleration.
+
+        Parameters:
+        -----------
+        p0   : array_like, shape (3,)
+               Start position [x, y, z]
+        p1   : array_like, shape (3,)
+               End position [x, y, z]
+        v0   : array_like, shape (3,)
+               Start velocity [vx, vy, vz]
+        v1   : array_like, shape (3,)
+               End velocity [vx, vy, vz]
+        rpy0 : array_like, shape (3,)
+               Start orientation as roll, pitch, yaw (rad)
+        rpy1 : array_like, shape (3,)
+               End orientation as roll, pitch, yaw (rad)
+        T    : float
+               Total trajectory duration (s)
+
+        Returns:
+        --------
+        t       : ndarray, shape (N,)
+                  Time vector
+        pos     : ndarray, shape (N,3)
+                  Positions along the quintic trajectory
+        vel     : ndarray, shape (N,3)
+                  Velocities along the quintic trajectory
+        acc     : ndarray, shape (N,3)
+                  Accelerations along the quintic trajectory
+        rpy_traj: ndarray, shape (N,3)
+                  Interpolated roll, pitch, yaw angles (rad)
+        """
+        # --- ensure array inputs ---
+        p0, p1, v0, v1 = map(np.array, (p0, p1, v0, v1))
+        rpy0 = np.array(rpy0)
+        rpy1 = np.array(rpy1)
+
+        # --- time vector ---
+        num_steps = int(np.ceil(T / self.dt)) + 1
+        t = np.linspace(0, T, num_steps)
+        ts = t.reshape(-1, 1)
+
+        # --- quintic translation ---
+        a0 = p0
+        a1 = v0
+        a2 = np.zeros_like(p0)
+
+        # Powers of T
+        T2, T3, T4, T5 = T**2, T**3, T**4, T**5
+
+        # Reduced system for a3, a4, a5
+        M = np.array([
+            [   T3,    T4,    T5],
+            [ 3*T2,  4*T3,  5*T4],
+            [ 6*T , 12*T2, 20*T3]
+        ])
+        rhs = np.vstack([
+            (p1 - p0) - v0 * T,
+            v1 - v0,
+            np.zeros_like(p0)
+        ])
+        a3, a4, a5 = np.linalg.inv(M).dot(rhs)
+
+        pos = a0 + a1*ts + a2*ts**2 + a3*ts**3 + a4*ts**4 + a5*ts**5
+        vel =    a1 + 2*a2*ts   + 3*a3*ts**2 + 4*a4*ts**3 + 5*a5*ts**4
+        acc =       2*a2       + 6*a3*ts     +12*a4*ts**2  +20*a5*ts**3
+
+        # --- SLERP orientation from RPY ---
+        # Convert RPY to quaternions
+        q0 = R.from_euler('xyz', rpy0, degrees=False).as_quat()
+        q1 = R.from_euler('xyz', rpy1, degrees=False).as_quat()
+
+        # SLERP setup
+        slerp = Slerp([0.0, 1.0], R.from_quat([q0, q1]))
+        tau = t / T
+        quats = slerp(tau).as_quat()  # array (N,4)
+
+        # Convert back to RPY
+        rpy_traj = R.from_quat(quats).as_euler('xyz', degrees=False)
+
+        return t, pos, vel, acc, rpy_traj
+
+    def slerp_orientation(t: np.ndarray, q0: np.array, q1: np.array, T: float) -> np.ndarray:
+        """
+        SLERP-interpolate between two unit quaternions over timestamps t.
+
+        Parameters:
+        -----------
+        t  : array_like, shape (N,)
+            Time samples (0 <= t_i <= T).
+        q0 : array_like, shape (4,)
+            Start quaternion (x, y, z, w).
+        q1 : array_like, shape (4,)
+            End quaternion (x, y, z, w).
+        T  : float
+            Total interpolation time.
+
+        Returns:
+        --------
+        orients : ndarray, shape (N,4)
+            Interpolated quaternions at each t[i].
+        """
+        t = np.asarray(t)
+        if np.any(t < 0) or np.any(t > T):
+            raise ValueError("All t values must lie within [0, T].")
+
+        # Normalize input quaternions
+        q0 = np.asarray(q0) / np.linalg.norm(q0)
+        q1 = np.asarray(q1) / np.linalg.norm(q1)
+
+        # Build SLERP object over [0,1]
+        key_rots = R.from_quat([q0, q1])
+        slerp = Slerp([0.0, 1.0], key_rots)
+
+        # Normalize t to [0,1]
+        tau = t / T
+
+        # Compute SLERP and return as (x,y,z,w)
+        return slerp(tau).as_quat()
+
+    # def compute_traj_time(self, d, v_tool, a_max):
+    #     if d < (v_tool ** 2) / a_max:
+    #         T_total = 2 * np.sqrt(d / a_max)
+    #         profile = 'Triangular'
+    #     else:
+    #         T_accel = v_tool / a_max
+    #         d_accel = 0.5 * a_max * T_accel ** 2
+    #         d_ramps = 2 * d_accel
+    #         T_total = 2 * T_accel + (d - d_ramps) / v_tool
+    #         profile = 'Trapezoidal'
+    #     return T_total, profile
+    
+
+    def compute_traj_time(self, d, v_tool, a_max):
+
+        # --- Sanity checks ---
+        if d < 0:
+            raise ValueError("Distance d must be non‑negative")
+        if v_tool <= 0 or a_max <= 0:
+            raise ValueError("v_tool and a_max must both be > 0")
+
+        # distance needed to accelerate from 0→v_tool and then decel back to 0
+        d_ramps = v_tool**2 / a_max
+
+        if d <= d_ramps:
+            # never reaches v_tool → triangular
+            profile = 'Triangular'
+            t_accel = np.sqrt(d / a_max)
+            t_const = 0.0
+            t_decel = t_accel
+        else:
+            # trapezoidal: accel → cruise → decel
+            profile = 'Trapezoidal'
+            t_accel = v_tool / a_max
+            t_const = (d - d_ramps) / v_tool
+            t_decel = t_accel
+
+        T_total = t_accel + t_const + t_decel
+        return T_total, profile
 
     def plot_waypoints(self, waypoints, pos_start, pos_end):
         pos = np.array([T.t for T in waypoints])
