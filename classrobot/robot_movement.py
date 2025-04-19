@@ -193,6 +193,7 @@ class RobotControl:
                 SE3_waypoints.append(T)
 
             # 3) INVERSE KINEMATICS FOR ALL WAYPOINTS
+            # Note: if use this it will take too mcuh time to run so skip it!
             # joint_traj = []
             # for idx, T_pose in enumerate(traj_T):
             #     pos = T_pose.t.tolist()
@@ -211,7 +212,7 @@ class RobotControl:
             joint_vels = []   # for visualization
             timestamps = []
             start_time = time.time()
-
+            joint_traj = []
 
             for i in range(num_steps):
                 current_time = time.time() - start_time
@@ -223,6 +224,7 @@ class RobotControl:
                 x_dot_des = np.array(x_dot_des, dtype=float)  # Ensure it's a numpy array
                 # q_current  = joint_traj[i]  # Current joint configuration
                 q_current = self.robot_get_joint_rad()  # Current joint configuration
+                joint_traj.append(q_current)
                 # compute analytic Jacobian
                 J = robotDH.jacob0(q_current)  # J should be a 6x6 matrix.
                 dq = np.linalg.inv(J) @ x_dot_des
@@ -242,8 +244,8 @@ class RobotControl:
 
 
             # if user asked for visualization data, return it
-            # if visualize:
-            #     return SE3_waypoints, np.array(joint_traj), np.array(joint_vels), timestamps
+            if visualize:
+                return SE3_waypoints, np.array(joint_traj), np.array(joint_vels), timestamps
 
 
 

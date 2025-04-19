@@ -3,13 +3,10 @@ import time
 import cv2 as cv
 import sys
 import pathlib
-import numpy as np
-import json
 from spatialmath import SE3
 
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from classrobot import robot_movement, realsense_cam
-from classrobot.point3d import Point3D
 from classrobot import gripper
 from classrobot.UR5e_DH import UR5eDH
 
@@ -27,9 +24,6 @@ class Move2Object():
         self.acceleration = 1.2
         self.dt = 0.01
         self.robotDH = None
-        # fix y position and roll-pitch-yaw
-
-
 
         # Initialize the robot connection once.
         self.getrobotDH()
@@ -39,7 +33,6 @@ class Move2Object():
         self.robot.robot_init(self.robot_ip)
 
         self.cam = realsense_cam.RealsenseCam()
-        self.best_matrix = self.load_matrix()
 
         self._GRIPPER_LEFT_ = gripper.MyGripper3Finger()
         self.init_gripper()
@@ -90,7 +83,7 @@ class Move2Object():
         """
         Closes the gripper.
         """
-        self.init_gripper_rady_grap()
+        self.init_gripper_before_grap()
         time.sleep(0.6)
         print("Closing gripper...")
         self._GRIPPER_LEFT_.my_hand_close()
@@ -101,7 +94,7 @@ class Move2Object():
         """
         Opens the gripper.
         """
-        self.init_gripper_rady_grap()
+        self.init_gripper_before_grap()
         print("Opening gripper...")
         time.sleep(0.6)
         self._GRIPPER_LEFT_.my_hand_open()
@@ -109,21 +102,8 @@ class Move2Object():
         self._GRIPPER_LEFT_.my_release()
 
     def cam_relasense(self):
-        """
-        Launches the RealSense camera to obtain the board pose.
-        Returns the board pose (camera coordinate system) as a Point3D instance.
-        """
-
-        # aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_5X5_1000)
-        # image_marked, point3d = self.cam.get_all_board_pose(aruco_dict)
-        # # print("Camera measurement:", point3d)
-        # if image_marked is not None:
-        #     cv.imshow("Detected Board", image_marked)
-        #     cv.waitKey(5000)
-        #     cv.destroyAllWindows()
-
-        point3d = self.cam.get_all_board_pose()
-
+        aruco_dict_type = cv.aruco.DICT_5X5_1000
+        point3d = self.cam.cam_capture_marker(aruco_dict_type)
         return point3d
     
     def get_robot_TCP(self):
@@ -161,7 +141,7 @@ class Move2Object():
             marker_id = marker["id"]
             point = marker["point"]  # This is an instance of Point3D.
             target_pose_up = [point.x + 0.05, point.y-0.20, point.z] + RPY
-            target_pose_down = [point.x + 0.05, point.y-0.02, point.z] + GRAP_RPY
+            target_pose_down = [point.x + 0.05, point.y, point.z] + GRAP_RPY
             print(f"Moving to marker ID {marker_id} at position {target_pose_up}")
             
             # ----- start movement ----
