@@ -9,6 +9,12 @@
 
 ---
 
+# Installation
+
+>[!CAUTION]
+> This repo is support only python 3.11 not support python 3.12 or above
+> Please make sure you are using python 3.11
+
 step 1 crate venv and activate it
 
 For Windows
