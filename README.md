@@ -12,10 +12,10 @@
 ## Installation
 
 >[!CAUTION]
-> This repo is support only python 3.11 not support python 3.12 or above
+> This repository supports only Python 3.11 and does not support Python 3.12 or above.
 > Please make sure you are using python 3.11
 
-step 1 crate venv and activate it
+step 1 create venv and activate it
 
 For Windows
 ```bash
@@ -40,7 +40,7 @@ source venv/bin/activate
 > # for linux or mac
 > source venv/bin/activate
 > ```
-> it shoud be like this
+> it should be like this
 > ![bash venv](./images/bash_venv.png)
 
 step 2 install requirements
@@ -50,7 +50,7 @@ If you are developer
 ./install_requirements.sh dev
 ```
 
-If you are install in robot
+If you are installing on a robot
 ```bash
 ./install_requirements.sh robot
 ```
@@ -63,5 +63,5 @@ step 1 run below command
 ```bash
 git submodule update --remote
 ```
-step 2 commit this repo
+Step 2: Commit the changes to this repository
 
