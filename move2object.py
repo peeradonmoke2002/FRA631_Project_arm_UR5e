@@ -118,7 +118,7 @@ class Move2Object():
     def move_home(self):
         print("Moving to home position...")
         time.sleep(2)
-        # self.robot.robot_moveL(self.HOME_POS, self.speed)
+        # self.robot.robot_moveL(HOME_POS, self.speed)
         self.robot.my_robot_moveL(self.robotDH, HOME_POS, self.dt, self.speed, self.acceleration, False)
   
     def getrobotDH(self):
@@ -181,6 +181,7 @@ class Move2Object():
             time.sleep(3)
             self.move_home()
             time.sleep(3)
+            # done :)
 
             # ----- this code is work -----
             # up over the object
