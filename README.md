@@ -47,12 +47,12 @@ step 2 install requirements
 
 If you are developer 
 ```bash
-./install_requirements.sh dev
+pip install -r dev-requirements.txt 
 ```
 
 If you are installing on a robot
 ```bash
-./install_requirements.sh robot
+pip install -r robot-requirements.txt
 ```
 
 
