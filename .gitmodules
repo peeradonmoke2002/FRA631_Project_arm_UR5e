@@ -1,3 +1,6 @@
 [submodule "FRA631_Project_Dual_arm_UR5_Calibration"]
 	path = FRA631_Project_Dual_arm_UR5_Calibration
 	url = https://github.com/peeradonmoke2002/FRA631_Project_Dual_arm_UR5_Calibration.git
+[submodule "FRA631_Project_Dual_arm_UR5_Trajectory_Planning"]
+	path = FRA631_Project_Dual_arm_UR5_Trajectory_Planning
+	url = https://github.com/peeradonmoke2002/FRA631_Project_Dual_arm_UR5_Trajectory_Planning.git
