@@ -1,0 +1,190 @@
+# main.py
+import time
+import cv2 as cv
+import sys
+import pathlib
+
+sys.path.append(str(pathlib.Path(__file__).parent.parent))
+from classrobot import robot_movement, realsense_cam
+import os
+
+PATH_IMAGE_LOGS =  pathlib.Path(__file__).resolve().parent.parent / "images/calibration/logs"
+
+
+class calibrationUR5e():
+    def __init__(self):
+        # End effector home position (6 DOF) and other test positions
+        self.HOME_POS = [0.701172053107018, 0.184272460738082, 0.1721568294843568, -1.7318488600590023, 0.686830145115122, -1.731258978679887]
+        self.robot_ip = "192.168.200.10"
+        self.speed = 0.5
+        self.acceleration = 0.25
+        # Initialize the robot connection once.
+        self.robot = robot_movement.RobotControl()
+        self.robot.robot_release()
+        self.robot.robot_init(self.robot_ip)
+        self.cam = realsense_cam.RealsenseCam()
+
+    def stop_all(self):
+        self.robot.robot_release()
+        self.cam.stop()
+
+    def cam_relasense(self):
+        aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_1000)
+        image_marked, point3d = self.cam.get_board_pose(aruco_dict)
+        print("Camera measurement:", point3d)
+        if image_marked is not None:
+            # Display the image with detected board
+            cv.imshow("Detected Board", image_marked)
+            cv.waitKey(5000)
+            cv.destroyAllWindows()
+
+            # Save the image to a file with a unique name
+            self.cam.save_image(image_marked, PATH_IMAGE_LOGS)
+       
+        return point3d
+    
+    def save_images(self,image):
+        self.cam.save_image(image, PATH_IMAGE_LOGS)
+    
+    def get_robot_TCP(self):
+        """
+        Connects to the robot and retrieves the current TCP (end-effector) position.
+        Returns a 3-element list: [x, y, z].
+        """
+        pos = self.robot.robot_get_position()
+        pos_3d = self.robot.convert_gripper_to_maker(pos)
+        print("Robot TCP position:", pos_3d)
+        return pos_3d
+
+    def move_home(self):
+        print("Moving to home position...")
+        self.robot.robot_moveL(self.HOME_POS, self.speed, self.acceleration)
+
+    def moveL_square(self):
+   
+        # ----- Reference data -----
+        # Use the provided "home" and reference corner positions.
+        pos_home = [0.7011797304915488, 0.18427154391614353, 0.17217411213036665]
+        BL_ref = [0.6158402179629584, 0.18426921633782534, 0.3510680386492011]
+        TL_ref = [0.9034970156209872, 0.18431919874933683, 0.3510680386492011]
+        TR_ref = [0.9035034184486379, 0.18425659123476879, -0.43708867396716417]
+        BR_ref = [0.6158402179629584, 0.18424774957164802, -0.43708867396716417]
+        RPY = [-1.7318443587261685, 0.686842056802218, -1.7312759524010408]
+        avg_y = (TL_ref[1] + TR_ref[1] + BL_ref[1] + BR_ref[1]) / 4.0
+        
+        # ----- Build a 3x3 grid on the x-z plane via bilinear interpolation -----
+        grid = []  # grid[i][j] corresponds to position at row i, col j.
+        for i in range(3):
+            row_positions = []
+            v = i / 2.0  # v = 0.0, 0.5, 1.0 for rows 0,1,2
+            for j in range(3):
+                u = j / 2.0  # u = 0.0, 0.5, 1.0 for columns 0,1,2
+                # Bilinear interpolation: x and z; y is fixed to avg_y.
+                x = (1 - u) * (1 - v) * TL_ref[0] + u * (1 - v) * TR_ref[0] + (1 - u) * v * BL_ref[0] + u * v * BR_ref[0]
+                z = (1 - u) * (1 - v) * TL_ref[2] + u * (1 - v) * TR_ref[2] + (1 - u) * v * BL_ref[2] + u * v * BR_ref[2]
+                row_positions.append([x, avg_y, z])
+            grid.append(row_positions)
+
+        move_order = [
+            (2, 0),  # Home: bottom-left
+            (2, 1),  # bottom-center
+            (2, 2),  # bottom-right
+            (1, 2),  # middle-right
+            (0, 2),  # top-right
+            (0, 1),  # top-center
+            (0, 0),  # top-left
+            (1, 0),  # middle-left
+            (1, 1)   # center
+        ]
+        
+        # ----- Outer loop: iterate over 3 vertical planes -----
+        # For each plane, we adjust the y coordinate relative to the original grid.
+        vertical_distance = 0.10  # 10 cm per plane
+        num_planes = 3
+        
+        # For state numbering, we can use: state = plane_idx * 10 + grid_index + 1
+        for plane_idx in range(num_planes):
+            # For each plane, adjust the grid: the new y becomes avg_y - (plane_idx * vertical_distance)
+            plane_offset_y = avg_y - (plane_idx * vertical_distance)
+            print(f"--- Moving on plane {plane_idx+1} with y = {plane_offset_y:.4f} ---")
+            
+            # For this plane, update the grid positions (only y changes)
+            plane_grid = []
+            for i in range(3):
+                row_positions = []
+                for j in range(3):
+                    pos = grid[i][j].copy()
+                    pos[1] = plane_offset_y
+                    row_positions.append(pos)
+                plane_grid.append(row_positions)
+            
+            # Iterate over the move order for this plane.
+            for idx, (i, j) in enumerate(move_order):
+                pos = plane_grid[i][j]
+                # Combine position and fixed orientation (RPY) into the target.
+                target = pos + RPY
+                state = plane_idx * 10 + idx + 1
+                print(f"Moving to plane {plane_idx+1} grid cell ({i},{j}) - Target: {target}")
+                self.robot.robot_moveL(target, self.speed, self.acceleration)
+                time.sleep(6)  # Pause for the robot to settle
+                
+                if self.collect_data(state=state):
+                    print(f"Data collection successful for state {state}.")
+                else:
+                    print(f"Data collection failed for state {state}. Halting sequence.")
+                    # self.robot.robot_release()
+                    return
+
+    def collect_data(self, state: int) -> bool:
+        """
+        Collect calibration data at the current robot state.
+        This function collects:
+           - the board pose from the camera (ccs: camera coordinate system)
+           - the robot TCP (ac: actual coordinate, i.e., end-effector)
+        It then appends a row to a CSV file in the format:
+           Pos, ccs_x, ccs_y, ccs_z, ac_x, ac_y, ac_z
+        Parameters:
+            state (int): A state number or position index.
+        Returns:
+            bool: True if data collection is successful.
+        """
+        filename = os.path.join(os.path.dirname(__file__), "data", "calibration_data.csv")
+        print(f"Collecting data for state {state} ...")
+
+
+        # data collection ------
+        # ccs = camera coordinate system (camera pose)
+        # ac = actual coordinate system (robot TCP pose)
+        # Get camera measurement (ccs)
+        ccs = self.cam_relasense()  # This should return a Point3D object
+        ccs = ccs.to_list()
+        # Get robot TCP (ac)
+        ac = self.get_robot_TCP()  # This returns a list [x, y, z] maker
+        # -- end data collection ------
+
+
+        # Create a CSV row.
+        data_row = [state, ccs[0], ccs[1], ccs[2], ac[0], ac[1], ac[2]]
+        print("Collected data row:", data_row)
+        
+        # Check if file exists; if not, write header.
+        file_exists = os.path.exists(filename)
+        with open(filename, "a") as f:
+            if not file_exists:
+                f.write("Pos,ccs_x,ccs_y,ccs_z,ac_x,ac_y,ac_z\n")
+            # Write data row.
+            f.write(",".join(map(str, data_row)) + "\n")
+        return True
+
+def main():
+    calibration = calibrationUR5e()
+
+    calibration.move_home()
+    time.sleep(3)
+    calibration.moveL_square()
+    time.sleep(3)
+    calibration.move_home()
+    calibration.stop_all()
+
+if __name__ == "__main__":
+    main()
