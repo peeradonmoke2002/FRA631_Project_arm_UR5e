@@ -4,7 +4,7 @@
 | Arm       | IP Address       |
 |-----------|------------------|
 | Left Arm  | 192.168.200.10   |
-| Right Arm | 192.168.200.20   |
+
 
 
 ---
@@ -56,12 +56,5 @@ pip install -r robot-requirements.txt
 ```
 
 
-## Note
-For update submodules if repo calibration have update
 
-step 1 run below command 
-```bash
-git submodule update --remote
-```
-Step 2: Commit the changes to this repository
 
