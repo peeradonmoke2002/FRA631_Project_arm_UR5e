@@ -1,4 +1,4 @@
-# FRA631 Dual Arm UR5 Calibration
+# FRA631 Dual Arm UR5e Calibration
 
 Repository for calibration between a camera and the UR5e robot arm.
 

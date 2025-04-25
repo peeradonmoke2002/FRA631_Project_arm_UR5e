@@ -1,6 +1,6 @@
-# FRA631_Project_Dual_arm_UR5_Trajectory_Planning
+# FRA631_Project Arm UR5e Trajectory_Planning
 
-Repository for trajectory planning of dual-arm UR5e robots.
+Repository for trajectory planning of UR5e robots.
 
 ---
 
