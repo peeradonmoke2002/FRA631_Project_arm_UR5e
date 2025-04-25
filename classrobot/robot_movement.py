@@ -218,7 +218,7 @@ class RobotControl:
             # P-feedback settings
             Kp = 0.5
 
-            print(f">> Starting moveL | speed={speed:.3f} m/s | dt={dt:.3f} s")
+            # print(f">> Starting moveL | speed={speed:.3f} m/s | dt={dt:.3f} s")
             start_time = time.time()
             error_flag = False
 
@@ -243,7 +243,7 @@ class RobotControl:
 
                 # log kp_max for debugging
                 kp_max = speed / np.where(e_vec == 0, np.inf, e_vec)
-                print(f"[{i:03d}] t={t_curr:.3f}s error={e_vec} kp_max={kp_max}")
+                # print(f"[{i:03d}] t={t_curr:.3f}s error={e_vec} kp_max={kp_max}")
 
                 # total Cartesian velocity
                 v_total = np.hstack((v_ff[:3] + v_fb, np.zeros(3)))
@@ -253,7 +253,7 @@ class RobotControl:
                 joint_traj.append(q_current)
                 J = robotDH.jacob0(q_current)
                 condJ = np.linalg.cond(J)
-                print(f"    cond(J)={condJ:.2e}")
+                # print(f"    cond(J)={condJ:.2e}")
                 if condJ > 1e9:
                     print("    -> Aborting: Jacobian ill-conditioned")
                     break
