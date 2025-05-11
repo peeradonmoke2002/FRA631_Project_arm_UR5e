@@ -10,6 +10,7 @@ import math
 import time
 import os
 import matplotlib.pyplot as plt
+from typing import List, Tuple, Union, Optional, Dict
 
 
 # global variables
@@ -87,7 +88,6 @@ class RealsenseCam:
             print(f"[ERROR] Failed to initialize RealSense camera: {e}")
             raise  # Or use sys.exit(1) if running as a standalone script
 
-
     def get_color_frame(self) -> np.ndarray:
         frames = self.pipeline.wait_for_frames()
         aligned_frames = self.align.process(frames)
@@ -119,7 +119,6 @@ class RealsenseCam:
         color_image = np.asanyarray(color_frame.get_data())
         # Return the color image, the raw depth frame, and the intrinsics.
         return color_image, depth_frame, depth_intrinsics
-
 
     def get_color_intrinsics(self, depth_intrinsics) -> tuple:
         """
@@ -158,18 +157,8 @@ class RealsenseCam:
         dist_coeffs = np.array(depth_intrinsics.coeffs, dtype=np.float32)
         return camera_matrix, dist_coeffs
 
-
     def get_all_board_pose(self, aruco_dict):
-        """
-        Detects Aruco markers in the color image, computes the center pixel of each marker,
-        deprojects the center pixel using RealSense depth data to obtain a 3D point, and returns
-        a list of markers with their IDs and corresponding 3D positions.
-        
-        Returns:
-        - output_image: The color image with detected markers and center points drawn.
-        - marker_points: A list of dictionaries. Each dictionary contains:
-                {"id": marker_id, "point": Point3D(...)}
-        """
+
         color_image, depth_frame, depth_intrinsics = self.get_color_and_depth_frames()
         if color_image is None or depth_frame is None:
             print("Failed to capture color/depth.")
@@ -217,56 +206,201 @@ class RealsenseCam:
         else:
             print("No markers detected.")
             return output_image, []
-
-
-    def get_board_pose(self, aruco_dict):
-        color_image, depth_frame, depth_intrinsics = self.get_color_and_depth_frames()
-        if color_image is None or depth_frame is None:
-            print("Failed to capture color/depth.")
-            return None, Point3D(0, 0, 0)  # Use Point3D, not Points3D
-
-        gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+        
+    def get_all_board_pose_v2(self, aruco_dict, captures: int = 5, delay_between: float = 0.5, max_round_retries: int = 3):
+        """
+        Enhanced multi-capture ArUco detection with IQR+median filtering per marker.
+        Retries a round up to max_round_retries if not all markers from first round are detected
+        and if samples are invalid. Ensures consistency of IDs across rounds.
+        """
+        samples: Dict[int, List[Point3D]] = {}
+        last_image = None
         parameters = cv2.aruco.DetectorParameters()
-        detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
-        corners, ids, rejected = detector.detectMarkers(gray)
-        output_image = color_image.copy()
-
-        if ids is not None and len(ids) > 0:
-            cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
-
-            all_cx = []
-            all_cy = []
-            for i in range(len(ids)):
-                c = corners[i][0]
-                cx = int(np.mean(c[:, 0]))
-                cy = int(np.mean(c[:, 1]))
-                all_cx.append(cx)
-                all_cy.append(cy)
-                cv2.circle(output_image, (cx, cy), 4, (0, 0, 255), -1)
-
-            cx = int(np.mean(all_cx))
-            cy = int(np.mean(all_cy))
-            point2d = [cx, cy]
-            print(cx,cy)
-            depth = depth_frame.get_distance(cx, cy)
-            if depth > 0:
-                point_coords = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [cx, cy], depth)
-                # Convert to Point3D 
-                # x = result[2]
-                # y = -point_coords[1]
-                # z = -point_coords[2]
-                x = point_coords[0]
-                y = point_coords[1]
-                z = point_coords[2]
-                point3d = Point3D(x, y, z)
-                print(f"Detected board center at: {point3d}")
-                return output_image, point3d
+        initial_ids = None
+        print(f"[get_all_board_pose_v2] captures={captures}, delay={delay_between}, max_retries={max_round_retries}")
+        # perform each capture round
+        for round_idx in range(1, captures + 1):
+            print(f" Round {round_idx}/{captures}")
+            round_ids = None
+            # retry loop for this round
+            for attempt in range(1, max_round_retries + 1):
+                color_image, depth_frame, depth_intrinsics = self.get_color_and_depth_frames()
+                last_image = color_image
+                if color_image is None or depth_frame is None:
+                    print(f"  [Attempt {attempt}] Frame capture failed.")
+                    time.sleep(delay_between)
+                    continue
+                gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+                detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+                corners, ids, _ = detector.detectMarkers(gray)
+                if ids is None or len(ids) == 0:
+                    print(f"  [Attempt {attempt}] No markers.")
+                    time.sleep(delay_between)
+                    continue
+                current_ids = set(int(i[0]) for i in ids)
+                if initial_ids is None:
+                    initial_ids = current_ids.copy()
+                    print(f"  Initial marker set: {initial_ids}")
+                else:
+                    missing = initial_ids - current_ids
+                    if missing:
+                        print(f"  [Attempt {attempt}] Missing markers {missing}, retrying.")
+                        time.sleep(delay_between)
+                        continue
+                # all markers present, collect samples
+                vis = color_image.copy()
+                cv2.aruco.drawDetectedMarkers(vis, corners, ids)
+                for idx, arr in enumerate(ids):
+                    mid = int(arr[0])
+                    c = corners[idx][0]
+                    cx, cy = int(np.mean(c[:, 0])), int(np.mean(c[:, 1]))
+                    depth = depth_frame.get_distance(cx, cy)
+                    if depth <= 0:
+                        print(f"   [Attempt {attempt}] ID {mid} invalid depth.")
+                        continue
+                    xyz = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [cx, cy], depth)
+                    pt = Point3D(*xyz)
+                    if pt.x == 0 and pt.y == 0 and pt.z == 0:
+                        print(f"   [Attempt {attempt}] ID {mid} zero sample, skipping.")
+                        continue
+                    print(f"   sample ID {mid}: {pt}")
+                    samples.setdefault(mid, []).append(pt)
+                # show this attempt's results
+                cv2.imshow(f"cap{round_idx}_att{attempt}", vis)
+                cv2.waitKey(200)
+                cv2.destroyWindow(f"cap{round_idx}_att{attempt}")
+                time.sleep(delay_between)
+                break  # exit retry loop, move to next round
             else:
-                print("Invalid depth.")
-                return output_image, Point3D(0, 0, 0)
+                print(f"  Round {round_idx} failed after {max_round_retries} attempts (incomplete marker set).")
+        # Filter and assemble results
+        results = []
+        for mid, pts in samples.items():
+            print(f"ID {mid} collected {len(pts)} samples")
+            if not pts:
+                continue
+            robust_pt = self.get_coordinate_result_by_filter(pts)
+            print(f" ID {mid} robust point: {robust_pt}")
+            results.append({"id": mid, "point": robust_pt})
+        output_image = last_image.copy() if last_image is not None else None
+        if output_image is not None:
+            gray2 = cv2.cvtColor(output_image, cv2.COLOR_BGR2GRAY)
+            detector2 = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+            corners_final, ids_final, _ = detector2.detectMarkers(gray2)
+            if ids_final is not None and len(ids_final) > 0:
+                cv2.aruco.drawDetectedMarkers(output_image, corners_final, ids_final)
+            for entry in results:
+                p = entry["point"]
+                cv2.circle(output_image, (int(p.x), int(p.y)), 6, (0, 255, 0), 2)
+        print(f"[get_all_board_pose_v2] done, {len(results)} markers")
+        return output_image, results
+
+    def get_board_pose(self, aruco_dict, max_depth_retries: int = 3):
+        for attempt in range(max_depth_retries):
+            color_image, depth_frame, depth_intrinsics = self.get_color_and_depth_frames()
+            if color_image is None or depth_frame is None:
+                print("Failed to capture color/depth.")
+                return None, Point3D(0, 0, 0)
+
+            gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+            parameters = cv2.aruco.DetectorParameters()
+            detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+            corners, ids, _ = detector.detectMarkers(gray)
+            output_image = color_image.copy()
+
+            if ids is None or len(ids) == 0:
+                print(f"[Attempt {attempt+1}] No markers detected.")
+                continue  # retry
+
+            # draw markers & compute center pixel
+            cv2.aruco.drawDetectedMarkers(output_image, corners, ids)
+            all_cx = [int(c[:,0].mean()) for c in (c[0] for c in corners)]
+            all_cy = [int(c[:,1].mean()) for c in (c[0] for c in corners)]
+            cx, cy = int(sum(all_cx)/len(all_cx)), int(sum(all_cy)/len(all_cy))
+            cv2.circle(output_image, (cx, cy), 4, (0,0,255), -1)
+
+            depth = depth_frame.get_distance(cx, cy)
+            if depth <= 0:
+                print(f"[Attempt {attempt+1}] Invalid depth ({depth:.3f}), retrying…")
+                continue  # retry
+            
+            # valid depth → deproject and return
+            point_coords = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [cx, cy], depth)
+            point3d = Point3D(*point_coords)
+            print(f"Detected board center at: {point3d}")
+            return output_image, point3d
+
+        # if we exit loop without a good reading:
+        print(f"Failed after {max_depth_retries} attempts, returning zero point.")
+        return output_image, Point3D(0, 0, 0)
+
+    def get_coordinate_result_by_filter(self,
+        points: List[Union[Point3D, Tuple[float, float, float]]]
+    ) -> Point3D:
+        """
+        Given a list of 3D points, filter each axis by IQR then return
+        the axis-wise medians as a new Point3D.
+        """
+        # split into separate lists
+        xs, ys, zs = [], [], []
+        for p in points:
+            x, y, z = (p.x, p.y, p.z) if isinstance(p, Point3D) else p
+            xs.append(x); ys.append(y); zs.append(z)
+
+        # filter each axis
+        xs_f = self.filter_iqr(xs)
+        ys_f = self.filter_iqr(ys)
+        zs_f = self.filter_iqr(zs)
+
+        # take medians
+        mx = self.get_median(xs_f)
+        my = self.get_median(ys_f)
+        mz = self.get_median(zs_f)
+
+        return Point3D(mx, my, mz)
+
+    def get_quartile(self, data: List[float], quartile_pos: float) -> float:
+        """Compute the quartile (25% or 75%) by linear interpolation."""
+        if not data:
+            raise ValueError("Empty data for quartile")
+        dataset = sorted(data)
+        n = len(dataset)
+        # percentile position in 1-based indexing
+        q_pos = (n + 1) * quartile_pos
+        # floor and ceil indices
+        i = max(1, min(n, int(math.floor(q_pos))))
+        j = max(1, min(n, i + 1))
+        # values at those positions
+        v_i = dataset[i - 1]
+        v_j = dataset[j - 1]
+        # fractional part
+        frac = q_pos - i
+        return v_i + frac * (v_j - v_i)
+
+    def get_median(self, data: List[float]) -> float:
+        """Return the exact or interpolated median."""
+        if not data:
+            raise ValueError("Empty data for median")
+        dataset = sorted(data)
+        n = len(dataset)
+        mid = (n + 1) / 2
+        i = int(math.floor(mid)) - 1
+        j = i + 1
+        if mid.is_integer():
+            return dataset[i]
         else:
-            print("No markers detected.")
-            return output_image, Point3D(0, 0, 0)
+            # interpolate between floor and ceil
+            return (dataset[i] + dataset[j]) / 2.0
+        
+    def filter_iqr(self, values: List[float], k: float = 1.5) -> List[float]:
+        """Keep only those values within [Q1 - k·IQR, Q3 + k·IQR]."""
+        if len(values) < 2:
+            return values[:]
+        q1 = self.get_quartile(values, 0.25)
+        q3 = self.get_quartile(values, 0.75)
+        iqr = q3 - q1
+        lower, upper = q1 - k * iqr, q3 + k * iqr
+        return [v for v in values if lower <= v <= upper]
         
     def stop(self):
             """
@@ -289,7 +423,6 @@ class RealsenseCam:
             else:
                 print("Pipeline is already stopped or not initialized.")
  
-
     def cam_capture_marker(self, aruco_dict_type):
         """
         Launches the RealSense camera to obtain the board pose.
@@ -306,6 +439,22 @@ class RealsenseCam:
         
         return point3d, image_marked
     
+    def cam_capture_marker_v2(self, aruco_dict_type):
+        """
+        Launches the RealSense camera to obtain the board pose.
+        Returns the board pose (camera coordinate system) as a Point3D instance.
+        """
+        # cv2.aruco.DICT_5X5_1000
+        aruco_dict = cv2.aruco.getPredefinedDictionary(aruco_dict_type)
+        image_marked, point3d = self.get_all_board_pose_v2(aruco_dict)
+        # print("Camera measurement:", point3d)
+        if image_marked is not None:
+            cv2.imshow("Detected Board", image_marked)
+            cv2.waitKey(5000)
+            cv2.destroyAllWindows()
+        
+        return point3d, image_marked
+  
     def save_image(self, image, path):
         """
         Saves the given image to the specified path with a timestamp as the name.
@@ -314,8 +463,7 @@ class RealsenseCam:
         full_path = os.path.join(path, f"{timestamp}.png")
         cv2.imwrite(full_path, image)
         print(f"Marked image saved to {full_path}")
-
-    
+ 
     def cam_capture_marker_jupyter(self, aruco_dict_type):
         """
         Launches the RealSense camera to obtain the board pose.
@@ -397,138 +545,4 @@ class RealsenseCam:
 
     def __del__(self):
         self.stop()
-
-    # ----- Not use function -----
-
-    # def get_board_pose_estimate(self, aruco_dict, camera_matrix, dist_coeffs, marker_length=0.05):
-    #     """
-    #     Estimates the 6DoF pose of the detected Aruco marker board using a hybrid approach:
-    #     - The rotation (rvec) is obtained from OpenCV’s estimatePoseSingleMarkers.
-    #     - The translation (tvec) is derived from the RealSense depth data.
-        
-    #     Parameters:
-    #     - aruco_dict: The dictionary used for marker detection 
-    #         (e.g., cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)).
-    #     - camera_matrix: The camera intrinsic matrix (3x3 numpy array).
-    #     - dist_coeffs: Distortion coefficients (numpy array).
-    #     - marker_length: The side length of the marker in meters (default is 0.05).
-        
-    #     Returns:
-    #     - output_image: The color image with detected markers and coordinate axes drawn.
-    #     - rvec: The rotation vector (from OpenCV) of the first detected marker, or None.
-    #     - tvec: The translation (as a Point3D) computed from the RealSense depth data, or a Point3D at (0,0,0).
-    #     """
-    #     # Capture color and depth frames.
-    #     color_image, depth_frame, depth_intrinsics = self.get_color_and_depth_frames()
-    #     if color_image is None or depth_frame is None:
-    #         print("Failed to capture color/depth.")
-    #         return None, None, Point3D(0, 0, 0)
-        
-    #     gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        
-    #     # Create an Aruco detector and detect markers.
-    #     parameters = cv2.aruco.DetectorParameters()
-    #     detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
-    #     corners, ids, _ = detector.detectMarkers(gray)
-    #     output_image = color_image.copy()
-        
-    #     if ids is not None and len(ids) > 0:
-    #         # Draw detected markers for visualization.
-    #         cv2.aruco.drawDetectedMarkers(output_image, corners, ids)
-            
-    #         # Use estimatePoseSingleMarkers to obtain rvecs and tvecs for each marker.
-    #         rvecs, tvecs_dummy, _ = cv2.aruco.estimatePoseSingleMarkers(
-    #             corners,
-    #             markerLength=marker_length,
-    #             cameraMatrix=camera_matrix,
-    #             distCoeffs=dist_coeffs
-    #         )
-            
-    #         if rvecs is not None and len(rvecs) > 0:
-    #             # For the first detected marker, compute its center pixel.
-    #             pts = corners[0][0]  # 4 corners for marker 0
-    #             cx = int(np.mean(pts[:, 0]))
-    #             cy = int(np.mean(pts[:, 1]))
-                
-    #             # Use the RealSense depth data to compute a translation.
-    #             depth = depth_frame.get_distance(cx, cy)
-    #             if depth > 0:
-    #                 # Deproject the center pixel to 3D using the depth intrinsics.
-    #                 point_coords = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [cx, cy], depth)
-    #                 tvec_depth = np.array([point_coords[0], point_coords[1], point_coords[2]]).reshape(1, 3)
-    #                 point3d = Point3D(tvec_depth[0][0], tvec_depth[0][1], tvec_depth[0][2])
-    #             else:
-    #                 print("Invalid depth at marker center.")
-    #                 return output_image, None, Point3D(0, 0, 0)
-                
-    #             # Draw coordinate axes for each detected marker using the computed tvec_depth.
-    #             for marker_index in range(len(rvecs)):
-    #                 cv2.drawFrameAxes(output_image, camera_matrix, dist_coeffs, 
-    #                                 rvecs[marker_index], tvec_depth.reshape(1, 3), marker_length)
-                    
-    #             # Use the first marker's rotation vector as the estimated rotation.
-    #             rvec = rvecs[0]
-    #             # Convert the rotation vector to a rotation matrix.
-    #             rot_matrix, _ = cv2.Rodrigues(rvec)
-    #             # Convert rotation matrix to quaternion and Euler angles via scipy.
-    #             r = R.from_matrix(rot_matrix)
-    #             quat = r.as_quat()   # in (x, y, z, w) order
-    #             roll, pitch, yaw = self.euler_from_quaternion(quat[0], quat[1], quat[2], quat[3])
-    #             print("Roll (deg):", math.degrees(roll))
-    #             print("Pitch (deg):", math.degrees(pitch))
-    #             print("Yaw (deg):", math.degrees(yaw))
-    #             print("Estimated translation from depth:", point3d)
-    #             print("Estimated rotation vector:", rvec.ravel())
-                
-    #             return output_image, rvec, point3d
-    #         else:
-    #             print("estimatePoseSingleMarkers returned no rotation data.")
-    #             return output_image, None, Point3D(0, 0, 0)
-    #     else:
-    #         print("No markers detected.")
-    #         return output_image, None, Point3D(0, 0, 0)
-
-    # def euler_from_quaternion(self,x, y, z, w):
-    #     """
-    #     Convert a quaternion into euler angles (roll, pitch, yaw)
-    #     roll is rotation around x in radians (counterclockwise)
-    #     pitch is rotation around y in radians (counterclockwise)
-    #     yaw is rotation around z in radians (counterclockwise)
-    #     """
-    #     t0 = +2.0 * (w * x + y * z)
-    #     t1 = +1.0 - 2.0 * (x * x + y * y)
-    #     roll_x = math.atan2(t0, t1)
-            
-    #     t2 = +2.0 * (w * y - z * x)
-    #     t2 = +1.0 if t2 > +1.0 else t2
-    #     t2 = -1.0 if t2 < -1.0 else t2
-    #     pitch_y = math.asin(t2)
-            
-    #     t3 = +2.0 * (w * z + x * y)
-    #     t4 = +1.0 - 2.0 * (y * y + z * z)
-    #     yaw_z = math.atan2(t3, t4)
-            
-    #     return roll_x, pitch_y, yaw_z # in radians
-    
-    # def get_imu_frames(self):
-    #     """
-    #     Retrieves accelerometer and gyroscope data.
-        
-    #     Returns:
-    #         accel_data: A namedtuple with fields x, y, z from the accelerometer.
-    #         gyro_data: A namedtuple with fields x, y, z from the gyroscope.
-    #     """
-    #     # self.imu_pipe.start(self.imu_config)
-    #     mot_frames = self.imu_pipe.wait_for_frames()
-    #     if mot_frames:
-    #         accel_data = mot_frames[0].as_motion_frame().get_motion_data()
-    #         gyro_data = mot_frames[1].as_motion_frame().get_motion_data()
-    #         return accel_data, gyro_data
-    #     else:
-    #         print("Failed to retrieve IMU data.")
-    #         return None, None
-
-   
-
-
 

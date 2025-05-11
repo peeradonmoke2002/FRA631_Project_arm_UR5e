@@ -23,8 +23,13 @@ RPY = [-1.7318443587261685, 0.686842056802218, -1.7312759524010408]
 
 HOME_POS_GRAP = [0.701172053107018, 0.184272460738082, 0.1721568294843568, 
             -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]  
+GRIPPER_HAND_OVER_POS = [0.7011622759203622, 0.18429544171620266, 0.17217042311559283,
+                        -2.2933253599444634, 0.8661720762272863, 0.03321393013524738]
 
-
+HAND_SAFE_POS=  [-0.5797913816371965, 0.10945501736192521, 0.5868975017296948, 
+                 -0.01168892556948376, -1.5742505612720608, -0.019596034953188405]
+HANE_OVER_POS = [-0.5844968810852482, 0.15948833780927751, 0.14179972384122283, 
+                 -0.011669515753328431, -1.5741801093628152, -0.019718763405037438]
 class TaskPlanning:
 
     def __init__(self):
@@ -33,7 +38,8 @@ class TaskPlanning:
                          -1.7318488600590023, 0.686830145115122, -1.731258978679887]
         self.HOME_POS_GRAP = [0.701172053107018, 0.184272460738082, 0.1721568294843568, 
             -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]  
-        self.robot_ip = "192.168.200.10"
+        self.robot_gripper_ip = "192.168.200.10"
+        self.robot_hand_ip = "192.168.200.20"
         self.speed = 0.06
         self.acceleration = 0.20
         self.FIX_Y = 0.18427318897339476
@@ -42,7 +48,7 @@ class TaskPlanning:
         self.high_RPY =  [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
         self.robot = robot_movement.RobotControl()
         self.robot.robot_release()
-        self.robot.robot_init(self.robot_ip)
+        self.robot.robot_init(self.robot_gripper_ip)
         self.cam = realsense_cam.RealsenseCam()
         self.dt = 0.01
  
@@ -179,6 +185,26 @@ class TaskPlanning:
         self.robotDH = UR5eDH()
         tool_offset = SE3(0, 0, 0.200)
         self.robotDH.tool = tool_offset
+
+    def gripper_pos_handover(self,marker):
+        p = marker["point"]
+        approach = [p.x , p.y - 0.20, p.z] + RPY
+        pick_pos = [p.x , p.y ,p.z] + GRAP_RPY
+
+        print(f"[PICK] Marker ID {marker['id']} at (x={p.x}, y={p.y}, z={p.z})")
+        # move above in X–Z
+        self.robot.my_robot_moveL(self.robotDH, approach, self.dt, self.speed, self.acceleration, False)
+        time.sleep(3) 
+        tcp_pose_goal = self.get_robot_TCP()
+        pos_current_goal = tcp_pose_goal[:3]+ GRAP_RPY
+        self.robot.robot_moveL(pos_current_goal, speed=self.speed, acceleration=self.acceleration)
+        self.robot.my_robot_moveL(self.robotDH, pick_pos, self.dt, self.speed, self.acceleration, False)
+        # grip
+        self.close_gripper()
+        time.sleep(3)
+        # retract back to approach pose
+        self.robot.my_robot_moveL(self.robotDH, approach, self.dt, self.speed, self.acceleration, False)
+        time.sleep(3)
 
     def pick_box(self, marker):
  
@@ -342,99 +368,7 @@ def main():
     mover = TaskPlanning()
     mover.move_home()
     time.sleep(2)
-    while True:
-        # At the start of each loop, check for overlaps
-        raw_pts = mover.cam_relasense()
-        transformed = mover.transform_marker_points(raw_pts)
-        overlaps = mover.detect_overlaps(transformed)
-        if not overlaps:
-            # No stacks detected: skip destacking menu and go to arrange phase
-            print("[INFO] No stacked boxes detected. Proceeding to Arrange phase.")
-            # Jump to Phase 2: Arrange remaining boxes
-            break
-        # ----- Phase 1: Destack only within the left or right zone -----
-        print("Choose an operation:")
-        print("  1) Unstack on LEFT zone (100–103)")
-        print("  2) Unstack on RIGHT zone (104–107)")
-        print("  3) Custom")
-
-        op_choice = input("Enter 1/2/3: ").strip()
-
-        if op_choice == "1":
-            mover.destack_within_zone(mover.group_left)
-            again = input("Do you want to perform another operation? (y/n): ").strip().lower()
-            if again != "y":
-                break
-   
-        elif op_choice == "2":
-            mover.destack_within_zone(mover.group_right)
-            again = input("Do you want to perform another operation? (y/n): ").strip().lower()
-            if again != "y":
-                break
-
-        elif op_choice != "3":
-            print("Invalid choice. Exiting.")
-            break
-    # ----- Phase 2: Arrange remaining boxes: CLI menu -----
-    raw_pts     = mover.cam_relasense()
-    transformed = mover.transform_marker_points(raw_pts)
-    box_ids     = sorted(m["id"] for m in transformed if m["id"] < 100)
-    empty_ids   = sorted(m["id"] for m in transformed if m["id"] >= 100)
-
-    while True:
-            print("\n[ARRANGE] No stacks detected, entering Arrange phase.")
-            print("How would you like to stack the remaining boxes?")
-            print("  1) min→max IDs:", box_ids)
-            print("  2) max→min IDs:", list(reversed(box_ids)))
-            print("  3) custom sequence")
-            choice = input("Enter 1/2/3: ").strip()
-
-            if choice == "1":
-                seq = box_ids
-            elif choice == "2":
-                seq = list(reversed(box_ids))
-            else:
-                print("Available boxes:", box_ids)
-                print("Available empty spots:", empty_ids)
-                tokens = input("Type your sequence (e.g. '3 7 8'): ").split()
-                seq = [int(t) for t in tokens]
-
-            # prompt for destination
-            print("Available empty spots for placement:", empty_ids)
-            while True:
-                try:
-                    dest = int(input("Select the destination marker ID: ").strip())
-                    if dest in empty_ids:
-                        break
-                    print("Invalid marker ID.")
-                except ValueError:
-                    print("Please enter a number.")
-
-            # execute stacking
-            print(f"\n[ARRANGE] Stacking {seq} onto marker {dest}")
-            for bid in seq:
-                # find its current 3D point
-                pt = next(m["point"] for m in transformed if m["id"] == bid)
-                print(f"[STACK] Picking box {bid} → placing at marker {dest}")
-                mover.pick_box({"id": bid, "point": pt})
-                # re‐read dest’s pose just in case:
-                mover.move_home_rpy()
-                raw_pts2  = mover.cam_relasense()
-                xf2       = mover.transform_marker_points(raw_pts2)
-                
-                dest_pt   = next(m["point"] for m in xf2 if m["id"] == dest)
-                # Append GRAP_RPY to the destination point
-            
-                mover.place_box(dest_pt)
-                mover.move_home()
-                time.sleep(1)
-                dest = bid    # next time we stack onto *this* box’s original spot
-
-            again = input("Do you want to perform another arrange? (y/n): ").strip().lower()
-            if again != 'y':
-                break
-    mover.stop_all()
-    print("Program completed. Robot and camera released.")
+    mover.move_home_rpy()
 
 if __name__ == "__main__":
     main()

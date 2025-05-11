@@ -3,9 +3,13 @@ import time
 import cv2 as cv
 import sys
 import pathlib
+import numpy as np
+import math
+from typing import List, Tuple, Union, Optional
 
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from classrobot import robot_movement, realsense_cam
+from classrobot.point3d import Point3D
 import os
 
 PATH_IMAGE_LOGS =  pathlib.Path(__file__).resolve().parent.parent / "images/calibration/logs"
@@ -28,20 +32,125 @@ class calibrationUR5e():
         self.robot.robot_release()
         self.cam.stop()
 
-    def cam_relasense(self):
+    def get_coordinate_result_by_filter(self,
+        points: List[Union[Point3D, Tuple[float, float, float]]]
+    ) -> Point3D:
+        """
+        Given a list of 3D points, filter each axis by IQR then return
+        the axis-wise medians as a new Point3D.
+        """
+        # split into separate lists
+        xs, ys, zs = [], [], []
+        for p in points:
+            x, y, z = (p.x, p.y, p.z) if isinstance(p, Point3D) else p
+            xs.append(x); ys.append(y); zs.append(z)
+
+        # filter each axis
+        xs_f = self.filter_iqr(xs)
+        ys_f = self.filter_iqr(ys)
+        zs_f = self.filter_iqr(zs)
+
+        # take medians
+        mx = self.get_median(xs_f)
+        my = self.get_median(ys_f)
+        mz = self.get_median(zs_f)
+
+        return Point3D(mx, my, mz)
+
+    def get_quartile(self, data: List[float], quartile_pos: float) -> float:
+        """Compute the quartile (25% or 75%) by linear interpolation."""
+        if not data:
+            raise ValueError("Empty data for quartile")
+        dataset = sorted(data)
+        n = len(dataset)
+        # percentile position in 1-based indexing
+        q_pos = (n + 1) * quartile_pos
+        # floor and ceil indices
+        i = max(1, min(n, int(math.floor(q_pos))))
+        j = max(1, min(n, i + 1))
+        # values at those positions
+        v_i = dataset[i - 1]
+        v_j = dataset[j - 1]
+        # fractional part
+        frac = q_pos - i
+        return v_i + frac * (v_j - v_i)
+
+    def get_median(self, data: List[float]) -> float:
+        """Return the exact or interpolated median."""
+        if not data:
+            raise ValueError("Empty data for median")
+        dataset = sorted(data)
+        n = len(dataset)
+        mid = (n + 1) / 2
+        i = int(math.floor(mid)) - 1
+        j = i + 1
+        if mid.is_integer():
+            return dataset[i]
+        else:
+            # interpolate between floor and ceil
+            return (dataset[i] + dataset[j]) / 2.0
+        
+
+    def filter_iqr(self, values: List[float], k: float = 1.5) -> List[float]:
+        """Keep only those values within [Q1 - k·IQR, Q3 + k·IQR]."""
+        if len(values) < 2:
+            return values[:]
+        q1 = self.get_quartile(values, 0.25)
+        q3 = self.get_quartile(values, 0.75)
+        iqr = q3 - q1
+        lower, upper = q1 - k * iqr, q3 + k * iqr
+        return [v for v in values if lower <= v <= upper]
+
+    def cam_relasense(self,
+                    captures: int = 5,
+                    max_retry: int = 5,
+                    retry_delay: float = 0.25,
+                    inter_capture_delay: float = 2.0) -> Optional[Point3D]:
+        """
+        Capture 'captures' valid board poses, then filter them by IQR per axis
+        and return the median Point3D. Each individual capture will retry
+        up to max_retry times if detection/depth fails.
+        """
+        from classrobot.point3d import Point3D
+        pts: List[Point3D] = []
         aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_1000)
-        image_marked, point3d = self.cam.get_board_pose(aruco_dict)
-        print("Camera measurement:", point3d)
-        if image_marked is not None:
-            # Display the image with detected board
-            cv.imshow("Detected Board", image_marked)
+        last_img = None
+
+        # 1) Collect 'captures' non-zero readings
+        while len(pts) < captures:
+            for attempt in range(1, max_retry + 1):
+                img, p = self.cam.get_board_pose(aruco_dict)
+                last_img = img
+                # treat (0,0,0) as invalid
+                if p is not None and any((p.x, p.y, p.z)):
+                    pts.append(p)
+                    break
+                print(f"  Capture {len(pts)+1}, attempt {attempt}/{max_retry} failed.")
+                time.sleep(retry_delay)
+            else:
+                print(f" → Couldn’t get capture #{len(pts)+1} after {max_retry} tries.")
+                break
+
+            # wait before next capture
+            time.sleep(inter_capture_delay)
+
+        if not pts:
+            print("No valid poses collected.")
+            return None
+
+        # 2) Filter + median – use your Python port of GetCoordinateResultByFilter
+        robust_pt = self.get_coordinate_result_by_filter(pts)  # returns a Point3D
+
+        # 3) (Optional) show & save the last image
+        if last_img is not None:
+            cv.imshow("Detected Board (filtered)", last_img)
             cv.waitKey(5000)
             cv.destroyAllWindows()
+            self.cam.save_image(last_img, PATH_IMAGE_LOGS)
 
-            # Save the image to a file with a unique name
-            self.cam.save_image(image_marked, PATH_IMAGE_LOGS)
-       
-        return point3d
+        print(f"Robust board pose after IQR filter: {robust_pt}")
+        return robust_pt
+
     
     def save_images(self,image):
         self.cam.save_image(image, PATH_IMAGE_LOGS)
@@ -99,8 +208,8 @@ class calibrationUR5e():
         
         # ----- Outer loop: iterate over 3 vertical planes -----
         # For each plane, we adjust the y coordinate relative to the original grid.
-        vertical_distance = 0.10  # 10 cm per plane
-        num_planes = 3
+        vertical_distance = 0.05  # 10 cm per plane
+        num_planes = 4
         
         # For state numbering, we can use: state = plane_idx * 10 + grid_index + 1
         for plane_idx in range(num_planes):
@@ -148,14 +257,13 @@ class calibrationUR5e():
         Returns:
             bool: True if data collection is successful.
         """
-        filename = os.path.join(os.path.dirname(__file__), "data", "calibration_data.csv")
+        # filename = os.path.join(os.path.dirname(__file__), "data", "calibration_data.csv")
+        filename =  pathlib.Path(__file__).resolve().parent.parent / "data/calibration_data.csv"
+
         print(f"Collecting data for state {state} ...")
 
 
         # data collection ------
-        # ccs = camera coordinate system (camera pose)
-        # ac = actual coordinate system (robot TCP pose)
-        # Get camera measurement (ccs)
         ccs = self.cam_relasense()  # This should return a Point3D object
         ccs = ccs.to_list()
         # Get robot TCP (ac)

@@ -27,3 +27,5 @@ print("Testing gripper ...", end="")
 _GRIPPER_LEFT_.my_hand_close()  # Now this should actuate the close command
 time.sleep(2)                   # Wait for 2 seconds before the next command
 # _GRIPPER_LEFT_.my_hand_open()    # Test open command
+time.sleep(2)                   # Wait for 2 seconds before the next command
+_GRIPPER_LEFT_.my_release()

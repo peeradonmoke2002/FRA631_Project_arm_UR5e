@@ -50,7 +50,7 @@ calibrator = CalibratorTools(calibration_data_list)
 
 # Set calibration parameters.
 num_selected_positions = len(calibration_data_list)  # using all loaded data points
-num_iterations = 20000
+num_iterations = 50000
 target_rms_error = 0.001
 # Run the calibration search.
 best_matrix, best_rms, rms_errors, selected_positions, transformed_points = calibrator.find_best_matrix(
@@ -62,15 +62,15 @@ data = {
     "matrix": best_matrix.tolist()
 }
 
-config_path = pathlib.Path(__file__).parent.parent / "config" / "best_matrix.json"
+config_path = pathlib.Path(__file__).parent.parent / "configs" / "best_matrix.json"
 print(f"Saving best matrix to {config_path}")
 
-# # Ensure the parent directory exists (but do not recreate if it already exists).
-# config_path.parent.mkdir(parents=True, exist_ok=True)
+# Ensure the parent directory exists (but do not recreate if it already exists).
+config_path.parent.mkdir(parents=True, exist_ok=True)
 
-# # Write to the file, replacing its contents if it already exists.
-# with open(config_path, 'w') as f:
-#     json.dump(data, f, indent=4)
+# Write to the file, replacing its contents if it already exists.
+with open(config_path, 'w') as f:
+    json.dump(data, f, indent=4)
 
 # Output the results.
 if best_matrix is not None:

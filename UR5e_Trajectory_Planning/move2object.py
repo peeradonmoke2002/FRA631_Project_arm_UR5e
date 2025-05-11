@@ -105,7 +105,7 @@ class Move2Object():
 
     def cam_relasense(self):
         aruco_dict_type = cv.aruco.DICT_5X5_1000
-        point3d, images = self.cam.cam_capture_marker(aruco_dict_type)
+        point3d, images = self.cam.cam_capture_marker_v2(aruco_dict_type)
         return point3d, images
     
     def save_images(self,image):
@@ -138,7 +138,7 @@ class Move2Object():
         """        
         maker_point, images = self.cam_relasense()
         print(maker_point)
-        self.save_images(images)
+        # self.save_images(images)
         transfrom_point = self.cam.transform_marker_points(maker_point)
         print(transfrom_point)
         # Sort the markers by their id in ascending order.

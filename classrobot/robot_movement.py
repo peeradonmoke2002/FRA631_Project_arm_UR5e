@@ -261,7 +261,7 @@ class RobotControl:
                 J_pinv = np.linalg.pinv(J, rcond=1e-2)
                 dq = J_pinv @ v_total
                 joint_vels.append(dq)
-                print(f"    dq={dq}")
+                # print(f"    dq={dq}")
 
                 # send the speedJ command
                 self.robot_speed_J(dq.tolist(), acceleration=acceleration, time=dt)
@@ -346,18 +346,18 @@ class RobotControl:
     #     res = [-position[2], 0.400 - position[1], -(position[0] + 0.055)]
     #     return res
     
-    # def convert_gripper_to_maker(self, position: list[float]) -> list[float]:
-    #     '''
-    #     Convert TCP Position from Gripper Ref to Marker Ref
-    #     '''
+    def convert_gripper_to_maker(self, position: list[float]) -> list[float]:
+        '''
+        Convert TCP Position from Gripper Ref to Marker Ref
+        '''
     
-    #     res = [position[0], position[1], position[2]]
+        res = [position[0], position[1], position[2]]
 
-    #     # translation
-    #     res[0] += 0.18
-    #     res[1] += 0.18
+        # translation
+        res[0] += 0.14
+        res[1] += 0.18
 
-    #     return res
+        return res
        
     # def my_transform_position_to_world_ref(self, position: list[float]) -> list[float]:
     #     """
