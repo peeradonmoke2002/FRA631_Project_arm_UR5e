@@ -5,7 +5,7 @@ from classrobot import robot_movement
 
 def main():
 
-    robot_ip = "192.168.200.10"
+    robot_ip = "192.168.200.20"
     robot = robot_movement.RobotControl()
     robot.robot_init(robot_ip)
     pos_left = robot.robot_get_position()

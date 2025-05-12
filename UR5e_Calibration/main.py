@@ -20,8 +20,8 @@ class calibrationUR5e():
         # End effector home position (6 DOF) and other test positions
         self.HOME_POS = [0.701172053107018, 0.184272460738082, 0.1721568294843568, -1.7318488600590023, 0.686830145115122, -1.731258978679887]
         self.robot_ip = "192.168.200.10"
-        self.speed = 0.5
-        self.acceleration = 0.25
+        self.speed = 0.06
+        self.acceleration = 0.20
         # Initialize the robot connection once.
         self.robot = robot_movement.RobotControl()
         self.robot.robot_release()
@@ -111,7 +111,6 @@ class calibrationUR5e():
         and return the median Point3D. Each individual capture will retry
         up to max_retry times if detection/depth fails.
         """
-        from classrobot.point3d import Point3D
         pts: List[Point3D] = []
         aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_1000)
         last_img = None
@@ -119,7 +118,7 @@ class calibrationUR5e():
         # 1) Collect 'captures' non-zero readings
         while len(pts) < captures:
             for attempt in range(1, max_retry + 1):
-                img, p = self.cam.get_board_pose(aruco_dict)
+                img, p = self.cam.get_single_board_pose(aruco_dict)
                 last_img = img
                 # treat (0,0,0) as invalid
                 if p is not None and any((p.x, p.y, p.z)):
@@ -132,6 +131,8 @@ class calibrationUR5e():
                 break
 
             # wait before next capture
+            print(f"  Capture {len(pts)}/{captures} successful.")
+            print(f"  Pose: {pts[-1]}")
             time.sleep(inter_capture_delay)
 
         if not pts:
@@ -146,7 +147,7 @@ class calibrationUR5e():
             cv.imshow("Detected Board (filtered)", last_img)
             cv.waitKey(5000)
             cv.destroyAllWindows()
-            self.cam.save_image(last_img, PATH_IMAGE_LOGS)
+            # self.cam.save_image(last_img, PATH_IMAGE_LOGS)
 
         print(f"Robust board pose after IQR filter: {robust_pt}")
         return robust_pt

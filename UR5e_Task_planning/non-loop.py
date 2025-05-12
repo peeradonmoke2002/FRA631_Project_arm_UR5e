@@ -19,6 +19,7 @@ PATH_IMAGE_LOGS =  pathlib.Path(__file__).resolve().parent.parent / "images/task
 
 
 GRAP_RPY = [-1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
+GRAP_RPY_HAND = [-2.293352137967249, 0.8661607309064375, 0.03319413211288414]
 
 RPY = [-1.7318443587261685, 0.686842056802218, -1.7312759524010408]
 
@@ -43,10 +44,12 @@ class TaskPlanning:
          
         self.HAND_SAFE_POS=  [-0.5797913816371965, 0.10945501736192521, 0.5868975017296948, 
                  -0.01168892556948376, -1.5742505612720608, -0.019596034953188405]
-        self.HAND_OVER_POS = [-0.5844968810852482, 0.15948833780927751, 0.14179972384122283, 
-                 -0.011669515753328431, -1.5741801093628152, -0.019718763405037438]
+        self.HAND_OVER_POS =[-0.6960388998978234, 0.22728512918295887, 0.13792559506438679, 
+                             -0.0060578982741073, -1.575294320701689, -0.012040935748146972]
         self.GRIPPER_HAND_OVER_POS = [0.49376288336678675, 0.18429329032065667, 0.17215325979069604, 
                                       -2.293352137967249, 0.8661607309064375, 0.03319413211288414]
+        self.hand_drop_pos = [-0.5797889893318314, 0.10942745332216032, 0.586847535496484,
+                               1.1124348382650098, -1.279905389196877, -1.1336271607829078]
         self.robot_gripper_ip = robot_gripper_ip
         self.robot_hand_ip = robot_hand_ip
         self.speed = 0.03
@@ -151,7 +154,7 @@ class TaskPlanning:
         print("Robot TCP position:", pos)
         return pos
 
-    def     move_home_gripper(self):
+    def move_home_gripper(self):
         print("gripper Moving to home position...")
         self.robot_gripper.robot_moveL(self.HOME_POS, self.speed)
     
@@ -170,6 +173,10 @@ class TaskPlanning:
     def robot_gripper_position_for_hand_over(self):
         print("gripper Moving to handover position...")
         self.robot_gripper.robot_moveL(self.GRIPPER_HAND_OVER_POS, self.speed)
+
+    def hand_drop(self):
+        print("hand Moving to drop position...")
+        self.robot_hand.robot_moveL(self.hand_drop_pos, self.speed)
     
 
     def transform_marker_points(self, maker_point):
@@ -268,7 +275,7 @@ class TaskPlanning:
         # approach pose (X–Z move, Y fixed)
         approach = [p.x, p.y - 0.20, p.z] + RPY
         # actual place pose
-        place_pos = [p.x, p.y - 0.077, p.z] + GRAP_RPY
+        place_pos = [p.x, p.y - 0.073, p.z] + GRAP_RPY
         print(f"[PLACE] at marker pos (x={p.x}, y={p.y}, z={p.z})")
         # move above in X–Z
         print("move linear")
@@ -280,7 +287,22 @@ class TaskPlanning:
         self.robot_gripper.my_robot_moveL(self.robotDH, approach, self.dt, self.speed, self.acceleration, False)
         time.sleep(3)
 
-    
+    def place_box_on_hand(self, marker_point):
+        p = marker_point
+        # approach pose (X–Z move, Y fixed)
+        approach = [p.x, p.y - 0.20, p.z] + RPY
+        # actual place pose
+        place_pos = [p.x+0.065, p.y - 0.073, p.z+0.06] + GRAP_RPY
+        print(f"[PLACE] at marker pos (x={p.x}, y={p.y}, z={p.z})")
+        # move above in X–Z
+        print("move linear")
+
+        self.robot_gripper.my_robot_moveL(self.robotDH, approach, self.dt, self.speed, self.acceleration, False)
+        self.robot_gripper.my_robot_moveL(self.robotDH, place_pos, self.dt, self.speed, self.acceleration, False)
+        # grip
+        self.open_gripper()
+        self.robot_gripper.my_robot_moveL(self.robotDH, approach, self.dt, self.speed, self.acceleration, False)
+        time.sleep(3)
 
     def find_next_stack_position(self, current_id, sorted_markers):
         """Finds the next marker that has a higher ID."""
@@ -413,29 +435,10 @@ def main():
     time.sleep(2)
     while True:
         # At the start of each loop, check for overlaps
-        marker_sets = []
-        for _ in range(5):
-            raw_pts = mover.cam_relasense()
-            valid_pts = [m for m in raw_pts if m["point"].x != 0 or m["point"].y != 0 or m["point"].z != 0]
-            marker_sets.append(valid_pts)
-            time.sleep(0.1)  # slight delay between captures
-        from collections import defaultdict
-        # Merge and average points by ID
-        accum = defaultdict(list)
-        for markers in marker_sets:
-            for m in markers:
-                accum[m["id"]].append(m["point"])
-
-        averaged = []
-        for mid, points in accum.items():
-            if points:
-                x = sum(p.x for p in points) / len(points)
-                y = sum(p.y for p in points) / len(points)
-                z = sum(p.z for p in points) / len(points)
-                averaged.append({"id": mid, "point": type(points[0])(x, y, z)})
-
-        transformed = mover.transform_marker_points(averaged)
+        raw_pts = mover.cam_relasense()
+        transformed = mover.transform_marker_points(raw_pts)
         overlaps = mover.detect_overlaps(transformed)
+        # Print the detected overlaps for debugging
         if not overlaps:
             # No stacks detected: skip destacking menu and go to arrange phase
             print("[INFO] No stacked boxes detected. Proceeding to Arrange phase.")
@@ -470,28 +473,9 @@ def main():
             continue
 
     # ----- Phase 2: Arrange remaining boxes: CLI menu -----
-    marker_sets = []
-    for _ in range(5):
-        raw_pts = mover.cam_relasense()
-        valid_pts = [m for m in raw_pts if m["point"].x != 0 or m["point"].y != 0 or m["point"].z != 0]
-        marker_sets.append(valid_pts)
-        time.sleep(0.1)
+    raw_pts     = mover.cam_relasense()
+    transformed = mover.transform_marker_points(raw_pts)
 
-    from collections import defaultdict
-    accum = defaultdict(list)
-    for markers in marker_sets:
-        for m in markers:
-            accum[m["id"]].append(m["point"])
-
-    averaged = []
-    for mid, points in accum.items():
-        if points:
-            x = sum(p.x for p in points) / len(points)
-            y = sum(p.y for p in points) / len(points)
-            z = sum(p.z for p in points) / len(points)
-            averaged.append({"id": mid, "point": type(points[0])(x, y, z)})
-
-    transformed = mover.transform_marker_points(averaged)
     box_ids     = sorted(m["id"] for m in transformed if m["id"] < 100)
     empty_ids   = sorted(m["id"] for m in transformed if m["id"] >= 100)
 
@@ -551,12 +535,14 @@ def main():
 
             # release the box onto the hand at marker 200
             if hand_marker:
-                mover.place_box(hand_marker["point"])
+                mover.place_box_on_hand(hand_marker["point"])
             else:
                 print("Error: cannot place on hand because marker 200 was not detected")
             time.sleep(1)
 
-            # (Optional) retract the hand back to safe/home
+            
+            mover.move_home_hand()
+            mover.hand_drop()
             mover.move_home_hand()
             mover.move_home_gripper()
             time.sleep(1)
@@ -572,33 +558,14 @@ def main():
         # optional: re-home with correct RPY
         mover.robot_gripper_move_home_rpy()
 
-        # grab fresh dest pose using 5-capture average filter
-        marker_sets2 = []
-        for _ in range(5):
-            raw_pts2 = mover.cam_relasense()
-            valid_pts2 = [m2 for m2 in raw_pts2 if m2["point"].x != 0 or m2["point"].y != 0 or m2["point"].z != 0]
-            marker_sets2.append(valid_pts2)
-            time.sleep(0.1)
-
-        from collections import defaultdict
-        accum2 = defaultdict(list)
-        for markers2 in marker_sets2:
-            for m2 in markers2:
-                accum2[m2["id"]].append(m2["point"])
-
-        if dest not in accum2 or not accum2[dest]:
-            print(f"[ERROR] Destination marker ID {dest} not found in averaged data; skipping this placement.")
+        # Single capture for destination marker
+        raw_pts2 = mover.cam_relasense()
+        trans_pts2 = mover.transform_marker_points(raw_pts2)
+        dest_marker = next((m for m in trans_pts2 if m["id"] == dest), None)
+        if not dest_marker:
+            print(f"[ERROR] Destination marker ID {dest} not found; skipping this placement.")
             continue
-
-        avg_points = accum2[dest]
-        # average in camera frame
-        cam_x = sum(p.x for p in avg_points) / len(avg_points)
-        cam_y = sum(p.y for p in avg_points) / len(avg_points)
-        cam_z = sum(p.z for p in avg_points) / len(avg_points)
-        cam_pt = type(avg_points[0])(cam_x, cam_y, cam_z)
-        # transform into robot frame
-        transformed_dest = mover.transform_marker_points([{"id": dest, "point": cam_pt}])
-        dest_pt = transformed_dest[0]["point"]
+        dest_pt = dest_marker["point"]
 
         mover.place_box(dest_pt)
         mover.move_home_gripper()

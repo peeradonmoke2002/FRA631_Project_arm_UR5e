@@ -7,7 +7,7 @@ from typing import Optional, List
 import numpy as np
 from roboticstoolbox import DHRobot, RevoluteDH
 from spatialmath import SE3
-from spatialmath.base import trotx, troty, trotz
+from spatialmath.base import trotx, troty, trotz, tr2angvec
 from spatialmath import SO3
 from math import pi, cos, sin
 from .planning import Planning
@@ -288,6 +288,151 @@ class RobotControl:
             return True
 
 
+
+
+    def my_robot_moveL_v2(self,
+                        robotDH,
+                        pose: list,
+                        dt: float,
+                        speed: float,
+                        acceleration: float,
+                        visualize: bool = False
+                        ) -> None:
+        """
+        Move the robot linearly to the given pose using a Cartesian cubic
+        trajectory and resolved-rate IK with speedJ, tracking both XYZ and RPY.
+        """
+        # 1) CURRENT & TARGET SE3
+        curr = self.robot_get_position()  # [x, y, z, r, p, y]
+        T_current = SE3(curr[0], curr[1], curr[2]) \
+                    @ SE3.RPY(curr[3], curr[4], curr[5], unit='rad')
+
+        T_goal = SE3(pose[0], pose[1], pose[2]) \
+                @ SE3.RPY(pose[3], pose[4], pose[5], unit='rad')
+
+        # 2) COMPUTE CARTESIAN TRAJECTORY
+        planning = Planning(dt)
+
+        pos_start = T_current.t
+        rpy_start = T_current.rpy(unit='rad')
+        pos_end   = T_goal.t
+        rpy_end   = T_goal.rpy(unit='rad')
+
+        # Stack into 6-vector [x,y,z,roll,pitch,yaw]
+        state_start = np.hstack((pos_start, rpy_start))
+        state_end   = np.hstack((pos_end,   rpy_end))
+
+        # Estimate motion duration
+        dist = np.linalg.norm(pos_end - pos_start)
+        T_total, _ = planning.compute_traj_time(dist, speed, acceleration)
+
+        # Time samples
+        num_steps = int(np.ceil(T_total / dt)) + 1
+        t_vec = np.linspace(0, T_total, num_steps)
+
+        # Trajectory arrays (N×6)
+        pos_traj   = np.zeros((num_steps, 6))
+        speed_traj = np.zeros((num_steps, 6))
+        acc_traj   = np.zeros((num_steps, 6))
+
+        # Cubic on each DOF
+        for axis in range(6):
+            _, p_arr, v_arr, a_arr = planning.cubic_trajectory(
+                state_start[axis],
+                state_end[axis],
+                v0=0.0,
+                v1=0.0,
+                T_total=T_total
+            )
+            pos_traj[:, axis]   = p_arr
+            speed_traj[:, axis] = v_arr
+            acc_traj[:, axis]   = a_arr
+
+        # Build SE3 waypoints from [x,y,z,roll,pitch,yaw]
+        SE3_waypoints = [
+            SE3(*p[:3]) @ SE3.RPY(p[3], p[4], p[5], unit='rad')
+            for p in pos_traj
+        ]
+
+        print("Successfully computed Cartesian trajectory.")
+
+        # 3) EXECUTE WITH RESOLVED-RATE IK (speedJ)
+        joint_traj = []
+        joint_vels = []
+        timestamps = []
+        p_desired  = []
+        p_actual   = []
+
+        # Feedback gains
+        Kp_pos = 0.5
+        Kp_ori = 0.5
+
+        start_time = time.time()
+
+        for i in range(num_steps):
+            t_curr = time.time() - start_time
+            timestamps.append(t_curr)
+
+            # 1) feed-forward 6D velocity [vx,vy,vz, wx,wy,wz]
+            v_ff = speed_traj[i]
+
+            # 2) position error
+            curr = self.robot_get_position()
+            p_act = np.array(curr[:3])
+            p_des = SE3_waypoints[i].t
+            e_pos = p_des - p_act
+            p_actual.append(p_act)
+            p_desired.append(p_des)
+
+            # 3) orientation error via axis-angle
+            T_act = SE3(curr[0], curr[1], curr[2]) \
+                    @ SE3.RPY(curr[3], curr[4], curr[5], unit='rad')
+            R_curr = T_act.R
+            R_des  = SE3_waypoints[i].R
+            R_err  = R_curr.T @ R_des
+            axis, angle = tr2angvec(R_err)
+            e_ori = axis * angle
+
+            # Feedback
+            v_fb = np.hstack((Kp_pos * e_pos,
+                            Kp_ori * e_ori))
+
+            # 4) total 6D command
+            v_total = v_ff + v_fb
+
+            # 5) resolved-rate IK → joint velocities
+            q_current = self.robot_get_joint_rad()
+            J = robotDH.jacob0(q_current)
+            if np.linalg.cond(J) > 1e9:
+                print("Aborting: ill-conditioned Jacobian")
+                return False
+
+            dq = np.linalg.pinv(J, rcond=1e-2) @ v_total
+            joint_traj.append(q_current)
+            joint_vels.append(dq)
+
+            # 6) send command & wait
+            self.robot_speed_J(dq.tolist(), acceleration=acceleration, time=dt)
+            time.sleep(dt)
+
+        # Return visualization data if requested
+        if visualize:
+            return {
+                "SE3_waypoints": SE3_waypoints,
+                "joint_traj":   np.array(joint_traj),
+                "joint_vels":   np.array(joint_vels),
+                "timestamps":   timestamps,
+                "p_desired":    np.array(p_desired),
+                "p_actual":     np.array(p_actual)
+            }
+
+        # Otherwise, stop and finish
+        time.sleep(0.5)
+        self.robot_move_speed_stop()
+        print(">> my_robot_moveL_v2: trajectory executed successfully")
+        return True
+
+
     def robot_moveL_stop(self, a=10.0, asynchronous=False) -> None:
         """Stop linear movement."""
         self._ROBOT_CON_.stopL(a, asynchronous)
@@ -314,37 +459,6 @@ class RobotControl:
         time.sleep(1)
 
 
-    # def my_convert_position_from_left_to_avatar(self,position: list[float]) -> list[float]:
-    #     '''
-    #     Convert TCP Position from Robot (Left) Ref to Avatar Ref
-    #     '''
-        
-    #     # swap axis z    y   x
-    #     res = [-position[2], -position[1], -position[0]]
-
-    #     # translation
-    #     res[0] -= 0.055
-    #     res[1] += 0.400
-
-    #     return res
-    
-    # def my_convert_position_from_avatar_to_left(self, position: list[float]) -> list[float]:
-    #     '''
-    #     Convert TCP Position from Avatar Reference back to Robot (Left) Reference.
-    #     This is the inverse of my_convert_position_from_left_to_avatar.
-        
-    #     Given (from the original conversion):
-    #     Avatar[0] = -Robot[2] - 0.055
-    #     Avatar[1] = -Robot[1] + 0.400
-    #     Avatar[2] = -Robot[0]
-        
-    #     Then the inverse conversion is:
-    #     Robot[0] = -Avatar[2]
-    #     Robot[1] = 0.400 - Avatar[1]
-    #     Robot[2] = -(Avatar[0] + 0.055)
-    #     '''
-    #     res = [-position[2], 0.400 - position[1], -(position[0] + 0.055)]
-    #     return res
     
     def convert_gripper_to_maker(self, position: list[float]) -> list[float]:
         '''
@@ -359,41 +473,4 @@ class RobotControl:
 
         return res
        
-    # def my_transform_position_to_world_ref(self, position: list[float]) -> list[float]:
-    #     """
-    #     Convert position from local robot reference to world (avatar) reference.
-    #     Applies:
-    #     - Rotation about Z by -pi/2
-    #     - Rotation about Y by pi
-    #     - Translation by (0.75, 0, 1.51)
-        
-    #     The conversion is done as:
-    #         p_world = R * p_robot + t
-    #     where R = Ry @ Rz and t = [0.75, 0.0, 1.51].
-    #     """
-    #     from math import cos, sin, pi
-    #     import numpy as np
-        
-    #     # Rotation about Z by -pi/2:
-    #     Rz = np.array([
-    #         [cos(-pi/2), -sin(-pi/2), 0],
-    #         [sin(-pi/2),  cos(-pi/2), 0],
-    #         [0,           0,          1]
-    #     ])
-    #     # Rotation about Y by pi:
-    #     Ry = np.array([
-    #         [ cos(pi), 0, sin(pi)],
-    #         [ 0,       1, 0      ],
-    #         [-sin(pi), 0, cos(pi)]
-    #     ])
-    #     # Combined rotation:
-    #     R = Ry @ Rz
-    #     # Translation vector:
-    #     t = np.array([0.75, 0.0, 1.51])
-        
-    #     # Compute final world position:
-    #     pos_final = R @ np.array(position) + t
-    #     return pos_final.tolist()
-
-    
-
+ 
