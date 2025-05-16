@@ -22,7 +22,7 @@ This project is organized into several key modules:
 
 * **UR5e\_Task\_Planning:**
   Manages high-level task planning, enabling the UR5e to perform autonomous tasks.  
-  *See the [`README.md`](./UR5e_Task_Planning/README.md) in the `UR5e_Task_Planning` folder for more details.*
+  *See the [`README.md`](./UR5e_Task_planning/README.md) in the `UR5e_Task_Planning` folder for more details.*
 
 ---
 
