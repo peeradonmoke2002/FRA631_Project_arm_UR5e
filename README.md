@@ -1,4 +1,4 @@
-# FRA631 Project: UR5e Arm
+# FRA631 Project: Automatic Robotic Arm (UR5e) System for Box Detection and Sorting
 
 ## UR5 Robot Information
 
@@ -57,3 +57,6 @@ source venv/bin/activate
   ```bash
   pip install -r robot-requirements.txt
   ```
+
+
+  More information Plsese visit -> https://hcilab.net/uncategorized/dual-arm-robotic-handover-system-fra-631-foundation-robotic/
