@@ -1,60 +1,62 @@
-# FRA631 Project arm UR5e
-## UR5 Information
+# FRA631 Project: Automatic Robotic Arm (UR5e) System for Box Detection and Sorting
 
-| Arm       | IP Address       |
-|-----------|------------------|
-| Left Arm  | 192.168.200.10   |
+## UR5 Robot Information
 
-
+| Arm      | IP Address       |
+| -------- | ---------------- |
+| **Left** | `192.168.200.10` |
 
 ---
 
-## Installation
+## Installation Guide
 
 >[!CAUTION]
-> This repository supports only Python 3.11 and does not support Python 3.12 or above.
-> Please make sure you are using python 3.11
+> ⚠️ **Supported Python Version:**
+> This repository **requires Python 3.11**.
+> Python 3.12 and newer are **not supported**.
+> Please ensure your environment uses Python 3.11.
 
-step 1 create venv and activate it
+### Step 1: Create and Activate a Virtual Environment
 
-For Windows
-```bash
+**For Windows:**
+
+```powershell
 set-executionpolicy -Scope CurrentUser -ExecutionPolicy Unrestricted
 python -m venv venv
-venv/Scripts/Activate.ps1
+venv\Scripts\Activate.ps1
 ```
 
-For Linux or Mac
+**For Linux or macOS:**
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 ```
 
+> **Important:**
+> Always activate the virtual environment before installing any requirements.
+>
+> * **Windows:** `venv\Scripts\Activate.ps1`
+> * **Linux/macOS:** `source venv/bin/activate`
+>
+> Your prompt should now look like this:
+> ![Activated venv example](./images/bash_venv.png)
 
-> [!WARNING]
-> Make sure to activate the venv before installing the requirements
-> ```bash
-> # for windows
-> venv/Scripts/Activate.ps1
-> # for linux or mac
-> source venv/bin/activate
-> ```
-> it should be like this
-> ![bash venv](./images/bash_venv.png)
+---
 
-step 2 install requirements
+### Step 2: Install Requirements
 
-If you are developer 
-```bash
-pip install -r dev-requirements.txt 
-```
+* **For development:**
 
-If you are installing on a robot
-```bash
-pip install -r robot-requirements.txt
-```
+  ```bash
+  pip install -r dev-requirements.txt
+  ```
+
+* **For deployment on the robot:**
+
+  ```bash
+  pip install -r robot-requirements.txt
+  ```
 
 
-
-
+  More information Plsese visit -> https://hcilab.net/uncategorized/dual-arm-robotic-handover-system-fra-631-foundation-robotic/
