@@ -232,7 +232,7 @@ class TaskPlanning:
     def gripper_pos_handover(self, marker):
         p = marker["point"]
         approach = [p.x, p.y - 0.20, p.z] + RPY
-        pick_pos = [p.x-0.03, p.y+0.06, p.z] + GRAP_RPY
+        pick_pos = [p.x, p.y, p.z] + GRAP_RPY
 
         print(f"[PICK] Marker ID {marker['id']} at (x={p.x}, y={p.y}, z={p.z})")
         # move above in X–Z
@@ -292,8 +292,8 @@ class TaskPlanning:
         # approach pose (X–Z move, Y fixed)
         approach = [p.x, p.y - 0.20, p.z] + RPY
         # actual place pose
-        # place_pos = [p.x-0.03, p.y - 0.073, p.z+0.03] + GRAP_RPY
-        place_pos = [p.x+0.065, p.y - 0.073, p.z+0.06] + GRAP_RPY
+        place_pos = [p.x, p.y - 0.073, p.z] + GRAP_RPY
+        # place_pos = [p.x+0.065, p.y - 0.073, p.z+0.06] + GRAP_RPY
         print(f"[PLACE] at marker pos (x={p.x}, y={p.y}, z={p.z})")
         # move above in X–Z
         print("move linear")
@@ -436,6 +436,7 @@ def main():
     mover.move_home_hand()
     mover.robot_hand.robot_release()
     time.sleep(2)
+    custom_phase = False
     while True:
         # At the start of each loop, check for overlaps
         raw_pts = mover.cam_relasense()
@@ -468,44 +469,58 @@ def main():
                 break
 
         elif op_choice == "3":
-            # User chose custom stacking: skip destack and proceed to Phase 2
+            # User chose custom stacking: skip destack and go to custom arrange
+            custom_phase = True
             break
 
         else:
             print("Invalid choice. Please enter 1, 2, or 3.")
             continue
 
-    # ----- Phase 2: Arrange remaining boxes: CLI menu -----
+    # ----- Phase 2: Arrange remaining boxes -----
     raw_pts     = mover.cam_relasense()
     transformed = mover.transform_marker_points(raw_pts)
 
     box_ids     = sorted(m["id"] for m in transformed if m["id"] < 100)
     empty_ids   = sorted(m["id"] for m in transformed if m["id"] >= 100)
 
-    print("\n[ARRANGE] No stacked boxes detected, entering Arrange phase.")
-    print("How would you like to stack the remaining boxes?")
-    print("  1) min→max IDs:", box_ids)
-    print("  2) max→min IDs:", list(reversed(box_ids)))
-    print("  3) custom sequence")
-    choice = input("Enter 1/2/3: ").strip()
-
-    if choice == "1":
-        seq  = box_ids
-        dest = int(input(f"Place onto which empty spot? {empty_ids}: ").strip())
-    elif choice == "2":
-        seq  = list(reversed(box_ids))
-        dest = int(input(f"Place onto which empty spot? {empty_ids}: ").strip())
-    else:
-        # FULLY CUSTOM: last ID is destination, everything before is pick‐order
+    if custom_phase:
+        # Direct custom-only prompt
+        print("\n[ARRANGE: CUSTOM ONLY]")
         print("Boxes you can move:", box_ids)
-        print("Possible destinations (boxes or empty):", box_ids + empty_ids)
+        print("Possible destinations:", box_ids + empty_ids)
         tokens = input(
             "Enter IDs where ALL BUT THE LAST are boxes to pick, "
             "and LAST is the destination marker (e.g. '3 7 8 2'): "
         ).split()
-        ids   = [int(t) for t in tokens]
-        seq   = ids[:-1]
-        dest  = ids[-1]
+        ids  = [int(t) for t in tokens]
+        seq  = ids[:-1]
+        dest = ids[-1]
+    else:
+        # Standard menu
+        print("\n[ARRANGE] No stacked boxes detected, entering Arrange phase.")
+        print("How would you like to stack the remaining boxes?")
+        print("  1) min→max IDs:", box_ids)
+        print("  2) max→min IDs:", list(reversed(box_ids)))
+        print("  3) custom sequence")
+        choice = input("Enter 1/2/3: ").strip()
+
+        if choice == "1":
+            seq  = box_ids
+            dest = int(input(f"Place onto which empty spot? {empty_ids}: ").strip())
+        elif choice == "2":
+            seq  = list(reversed(box_ids))
+            dest = int(input(f"Place onto which empty spot? {empty_ids}: ").strip())
+        else:
+            print("Boxes you can move:", box_ids)
+            print("Possible destinations:", box_ids + empty_ids)
+            tokens = input(
+                "Enter IDs where ALL BUT THE LAST are boxes to pick, "
+                "and LAST is the destination marker (e.g. '3 7 8 2'): "
+            ).split()
+            ids   = [int(t) for t in tokens]
+            seq   = ids[:-1]
+            dest  = ids[-1]
 
     print(f"\n[ARRANGE] Stacking {seq} → marker {dest}")
     # If user selected handover destination (ID 200), perform handover and exit

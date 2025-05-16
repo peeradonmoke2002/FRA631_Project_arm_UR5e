@@ -1,3 +1,11 @@
+def get_point_by_id(marker_id, markers):
+    """
+    Return the .["point"] for the given marker_id, or None if not found.
+    """
+    for m in markers:
+        if m["id"] == marker_id:
+            return m["point"]
+    return None
 import time
 import cv2 as cv
 import sys
@@ -43,8 +51,8 @@ class TaskPlanning:
             -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
          
         self.HAND_SAFE_POS=  [-0.5797913816371965, 0.10945501736192521, 0.5868975017296948, 
-                 -0.01168892556948376, -1.5742505612720608, -0.019596034953188405]
-        self.HAND_OVER_POS = [-0.6960388998978234, 0.22728512918295887, 0.13792559506438679, 
+                 -0.01168892556948376, -1.57425056127230608, -0.019596034953188405]
+        self.HAND_OVER_POS =[-0.6960388998978234, 0.22728512918295887, 0.13792559506438679, 
                              -0.0060578982741073, -1.575294320701689, -0.012040935748146972]
         self.GRIPPER_HAND_OVER_POS = [0.49376288336678675, 0.18429329032065667, 0.17215325979069604, 
                                       -2.293352137967249, 0.8661607309064375, 0.03319413211288414]
@@ -280,7 +288,7 @@ class TaskPlanning:
         # move above in X–Z
         print("move linear")
 
-        self.robot_gripper.my_robot_moveL(self.robotDH, approach, self.dt, self.speed, self.acceleration, True)
+        self.robot_gripper.my_robot_moveL(self.robotDH, approach, self.dt, self.speed, self.acceleration, False)
         self.robot_gripper.my_robot_moveL(self.robotDH, place_pos, self.dt, self.speed, self.acceleration, False)
         # grip
         self.open_gripper()
@@ -292,7 +300,8 @@ class TaskPlanning:
         # approach pose (X–Z move, Y fixed)
         approach = [p.x, p.y - 0.20, p.z] + RPY
         # actual place pose
-        place_pos = [p.x+0.065, p.y - 0.073, p.z+0.06] + GRAP_RPY
+        place_pos = [p.x, p.y - 0.073, p.z] + GRAP_RPY
+        # place_pos = [p.x+0.065, p.y - 0.073, p.z+0.06] + GRAP_RPY
         print(f"[PLACE] at marker pos (x={p.x}, y={p.y}, z={p.z})")
         # move above in X–Z
         print("move linear")
@@ -427,168 +436,104 @@ class TaskPlanning:
         time.sleep(1)
 
         
-        
+
+    def taskplanning(self):
+        # ---- home both robots & release ----
+        self.move_home_gripper()
+        self.move_home_hand()
+        self.robot_hand.robot_release()
+
+        # ---- capture & transform markers ----
+        raw_pts     = self.cam_relasense()
+        transformed = self.transform_marker_points(raw_pts)
+
+        # ---- prepare ID lists ----
+        box_ids   = sorted(m["id"] for m in transformed if m["id"] < 100)
+        empty_ids = sorted(m["id"] for m in transformed if m["id"] >= 100)
+
+        # ---- custom arrange input ----
+        print("\n[ARRANGE: CUSTOM ONLY]")
+        print(" Boxes you can move:", box_ids)
+        print(" Possible destinations:", box_ids + empty_ids)
+        tokens = input(
+            "Enter IDs where ALL BUT THE LAST are boxes to pick, "
+            "and LAST is the destination marker (e.g. '3 7 8 2'): "
+        ).split()
+        ids  = [int(t) for t in tokens]
+        seq  = ids[:-1]
+        dest = ids[-1]
+
+        print(f"[ARRANGE] Stacking {seq} → marker {dest}")
+
+        # ---- handover branch ----
+        if dest == 200:
+            for bid in seq:
+                pt = get_point_by_id(bid, transformed)
+                if pt is None:
+                    print(f"[ERROR] Box marker {bid} not found; skipping")
+                    continue
+                self.pick_box({"id": bid, "point": pt})
+                self.move_home_gripper()
+                self.robot_gripper_position_for_hand_over()
+                time.sleep(1)
+                self.robot_gripper.robot_release()
+
+                self.robot_hand.robot_init(self.robot_hand_ip)
+                self.robot_hand_over()
+                self.robot_hand.robot_release()
+                time.sleep(1)
+
+                self.robot_gripper.robot_init(self.robot_gripper_ip)
+                raw_hand  = self.cam_relasense()
+                trans_hand= self.transform_marker_points(raw_hand)
+                hand_pt = get_point_by_id(200, trans_hand)
+                if hand_pt is None:
+                    print("Error: marker 200 not detected on hand")
+                else:
+                    self.place_box_on_hand(hand_pt)
+
+                self.robot_hand.robot_init(self.robot_hand_ip)
+                self.move_home_hand()
+                self.hand_drop()
+                self.move_home_hand()
+                self.robot_hand.robot_release()
+
+                self.move_home_gripper()
+                self.robot_gripper.robot_release()
+                time.sleep(1)
+
+            self.stop_all()
+            print("Completed handover.")
+        else:
+            # ---- regular stacking ----
+            for bid in seq:
+                pt = get_point_by_id(bid, transformed)
+                if pt is None:
+                    print(f"[ERROR] Box marker {bid} not found; skipping")
+                    continue
+
+                self.pick_box({"id": bid, "point": pt})
+                self.robot_gripper_move_home_rpy()
+
+                # re-detect destination in case it moved
+                raw2   = self.cam_relasense()
+                trans2 = self.transform_marker_points(raw2)
+                dest_pt = get_point_by_id(dest, trans2)
+                if dest_pt is None:
+                    print(f"[ERROR] Destination marker {dest} not found; skipping")
+                    continue
+
+                self.place_box(dest_pt)
+                self.move_home_gripper()
+                time.sleep(1)
+                dest = bid
+
+            self.stop_all()
+            print("Completed stacking.")
+
 def main():
     mover = TaskPlanning()
-    mover.move_home_gripper()
-    mover.move_home_hand()
-    time.sleep(2)
-    while True:
-        # At the start of each loop, check for overlaps
-        raw_pts = mover.cam_relasense()
-        transformed = mover.transform_marker_points(raw_pts)
-        overlaps = mover.detect_overlaps(transformed)
-        # Print the detected overlaps for debugging
-        if not overlaps:
-            # No stacks detected: skip destacking menu and go to arrange phase
-            print("[INFO] No stacked boxes detected. Proceeding to Arrange phase.")
-            # Jump to Phase 2: Arrange remaining boxes
-            break
-        # ----- Phase 1: Destack only within the left or right zone -----
-        print("Choose an operation:")
-        print("  1) Unstack on LEFT zone (100–103)")
-        print("  2) Unstack on RIGHT zone (104–107)")
-        print("  3) Custom")
-
-        op_choice = input("Enter 1/2/3: ").strip()
-
-        if op_choice == "1":
-            mover.destack_within_zone(mover.group_left)
-            again = input("Do you want to perform another operation? (y/n): ").strip().lower()
-            if again != "y":
-                break
-
-        elif op_choice == "2":
-            mover.destack_within_zone(mover.group_right)
-            again = input("Do you want to perform another operation? (y/n): ").strip().lower()
-            if again != "y":
-                break
-
-        elif op_choice == "3":
-            # User chose custom stacking: skip destack and proceed to Phase 2
-            break
-
-        else:
-            print("Invalid choice. Please enter 1, 2, or 3.")
-            continue
-
-    # ----- Phase 2: Arrange remaining boxes: CLI menu -----
-    while True:
-        raw_pts     = mover.cam_relasense()
-        transformed = mover.transform_marker_points(raw_pts)
-
-        box_ids     = sorted(m["id"] for m in transformed if m["id"] < 100)
-        empty_ids   = sorted(m["id"] for m in transformed if m["id"] >= 100)
-
-        print("\n[ARRANGE] No stacked boxes detected, entering Arrange phase.")
-        print("How would you like to stack the remaining boxes?")
-        print("  1) min→max IDs:", box_ids)
-        print("  2) max→min IDs:", list(reversed(box_ids)))
-        print("  3) custom sequence")
-        choice = input("Enter 1/2/3: ").strip()
-
-        if choice == "1":
-            seq  = box_ids
-            dest = int(input(f"Place onto which empty spot? {empty_ids}: ").strip())
-        elif choice == "2":
-            seq  = list(reversed(box_ids))
-            dest = int(input(f"Place onto which empty spot? {empty_ids}: ").strip())
-        else:
-            # FULLY CUSTOM: last ID is destination, everything before is pick‐order
-            print("Boxes you can move:", box_ids)
-            print("Possible destinations (boxes or empty):", box_ids + empty_ids)
-            tokens = input(
-                "Enter IDs where ALL BUT THE LAST are boxes to pick, "
-                "and LAST is the destination marker (e.g. '3 7 8 2'): "
-            ).split()
-            ids   = [int(t) for t in tokens]
-            seq   = ids[:-1]
-            dest  = ids[-1]
-
-        print(f"\n[ARRANGE] Stacking {seq} → marker {dest}")
-        # If user selected handover destination (ID 200), perform handover and exit
-        if dest == 200:
-            print("[HANDOVER] Moving to handover with box sequence:", seq)
-            for bid in seq:
-                # find the box point safely
-                marker_entry = next((m for m in transformed if m["id"] == bid), None)
-                if marker_entry is None:
-                    print(f"[ERROR] Box ID {bid} not detected; skipping this handover.")
-                    continue
-                pt = marker_entry["point"]
-                print(f"[HANDOVER] Picking box {bid}")
-                mover.pick_box({"id": bid, "point": pt})
-                mover.move_home_gripper()
-
-                # move gripper into handover position
-                mover.robot_gripper_position_for_hand_over()
-                time.sleep(1)
-
-                # move hand robot to initial handover pose
-                mover.robot_hand_over()
-                time.sleep(1)
-
-                # refresh and detect marker ID 200 on the hand
-                raw_hand = mover.cam_relasense()
-                trans_hand = mover.transform_marker_points(raw_hand)
-                hand_marker = next((m for m in trans_hand if m["id"] == 200), None)
-                if hand_marker:
-                    print("[HANDOVER] Moving hand robot to updated marker 200 position")
-                    # move hand robot to the updated marker 200 position
-                else:
-                    print("Warning: handover marker ID 200 not found on refresh")
-
-                # release the box onto the hand at marker 200
-                if hand_marker:
-                    mover.place_box_on_hand(hand_marker["point"])
-                else:
-                    print("Error: cannot place on hand because marker 200 was not detected")
-                time.sleep(1)
-
-                
-                mover.move_home_hand()
-                mover.hand_drop()
-                mover.move_home_hand()
-                mover.move_home_gripper()
-                time.sleep(1)
-            mover.stop_all()
-            print("Program completed via handover.")
-            return
-        for bid in seq:
-            # find its point
-            pt = next(m["point"] for m in transformed if m["id"] == bid)
-            print(f"[STACK] Picking box {bid} → placing at marker {dest}")
-            mover.pick_box({"id": bid, "point": pt})
-
-            # optional: re-home with correct RPY
-            mover.robot_gripper_move_home_rpy()
-
-            # Single capture for destination marker
-            raw_pts2 = mover.cam_relasense()
-            trans_pts2 = mover.transform_marker_points(raw_pts2)
-            dest_marker = next((m for m in trans_pts2 if m["id"] == dest), None)
-            if not dest_marker:
-                print(f"[ERROR] Destination marker ID {dest} not found; skipping this placement.")
-                continue
-            dest_pt = dest_marker["point"]
-
-            mover.place_box(dest_pt)
-            mover.move_home_gripper()
-            time.sleep(1)
-
-            # next placement uses this box as the new “destination”
-            dest = bid
-
-        # end of arrange
-        mover.stop_all()
-        print("Program completed. Robot and camera released.")
-        again = input("again? (y/n): ").strip().lower()
-        if again == 'y':
-            # Repeat the Arrange loop
-            continue
-        else:
-            break
-
+    mover.taskplanning()
 
 if __name__ == "__main__":
     main()

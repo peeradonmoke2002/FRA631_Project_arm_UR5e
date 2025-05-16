@@ -43,7 +43,7 @@ class TaskPlanning:
             -1.7224438319206319, 0.13545161633255984, -1.2975236351897372]
          
         self.HAND_SAFE_POS=  [-0.5797913816371965, 0.10945501736192521, 0.5868975017296948, 
-                 -0.01168892556948376, -1.5742505612720608, -0.019596034953188405]
+                 -0.01168892556948376, -1.57425056127230608, -0.019596034953188405]
         self.HAND_OVER_POS =[-0.6960388998978234, 0.22728512918295887, 0.13792559506438679, 
                              -0.0060578982741073, -1.575294320701689, -0.012040935748146972]
         self.GRIPPER_HAND_OVER_POS = [0.49376288336678675, 0.18429329032065667, 0.17215325979069604, 
@@ -431,7 +431,9 @@ class TaskPlanning:
 def main():
     mover = TaskPlanning()
     mover.move_home_gripper()
+    
     mover.move_home_hand()
+    mover.robot_hand.robot_release()
     time.sleep(2)
     while True:
         # At the start of each loop, check for overlaps
@@ -514,15 +516,29 @@ def main():
             print(f"[HANDOVER] Picking box {bid}")
             mover.pick_box({"id": bid, "point": pt})
             mover.move_home_gripper()
-
-            # move gripper into handover position
             mover.robot_gripper_position_for_hand_over()
             time.sleep(1)
+            mover.robot_gripper.robot_release()
+
+
+       
+            mover.robot_hand.robot_init(mover.robot_hand_ip)
+
+            # move gripper into handover position
+
 
             # move hand robot to initial handover pose
             mover.robot_hand_over()
+          
+            mover.robot_hand.robot_release()
+            print("robothand disconnect")
+
+
             time.sleep(1)
 
+            # Initialize both robots
+            mover.robot_gripper.robot_init(mover.robot_gripper_ip)
+    
             # refresh and detect marker ID 200 on the hand
             raw_hand = mover.cam_relasense()
             trans_hand = mover.transform_marker_points(raw_hand)
@@ -540,11 +556,17 @@ def main():
                 print("Error: cannot place on hand because marker 200 was not detected")
             time.sleep(1)
 
+
+            mover.robot_hand.robot_init(mover.robot_hand_ip)
             
             mover.move_home_hand()
             mover.hand_drop()
             mover.move_home_hand()
+   
+            mover.robot_hand.robot_release()
+
             mover.move_home_gripper()
+            mover.robot_gripper.robot_release()
             time.sleep(1)
         mover.stop_all()
         print("Program completed via handover.")

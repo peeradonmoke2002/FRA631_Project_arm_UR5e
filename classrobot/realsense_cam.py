@@ -172,13 +172,13 @@ class RealsenseCam:
 
         samples: Dict[int, List[Point3D]] = {}
         annotated_img = None
-        print(f"[detect_markers_multi] rounds={rounds}, delay={delay}, max_tries={max_tries}")
+        # print(f"[detect_markers_multi] rounds={rounds}, delay={delay}, max_tries={max_tries}")
 
         initial_ids = None
         params = cv2.aruco.DetectorParameters()
         
         for round_idx in range(1, rounds + 1):
-            print(f"[detect_markers_multi] Round {round_idx}/{rounds}")
+            # print(f"[detect_markers_multi] Round {round_idx}/{rounds}")
             for attempt in range(1, max_tries + 1):
                 try:
                     img, depth, intr = self._capture_frames()
@@ -222,7 +222,7 @@ class RealsenseCam:
                     x, y, z = rs.rs2_deproject_pixel_to_point(intr, [cx, cy], d)
                     pt = Point3D(x, y, z)
                     samples.setdefault(mid, []).append(pt)
-                    print(f"   sample ID {mid}: {pt}")
+                    # print(f"   sample ID {mid}: {pt}")
 
                 # done with this round
                 time.sleep(delay)
@@ -236,7 +236,7 @@ class RealsenseCam:
             if not pts:
                 continue
             robust = self.get_coordinate_result_by_filter(pts)
-            print(f"[detect_markers_multi] ID {mid} → {robust}")
+            # print(f"[detect_markers_multi] ID {mid} → {robust}")
             results.append({"id": mid, "point": robust})
 
         # annotate final image
@@ -246,7 +246,7 @@ class RealsenseCam:
                 p = entry["point"]
                 cv2.circle(annotated_img, (int(p.x), int(p.y)), 6, (0, 255, 0), 2)
 
-        print(f"[detect_markers_multi] done, {len(results)} markers found")
+        # print(f"[detect_markers_multi] done, {len(results)} markers found")
         return annotated_img, results
 
     def get_single_board_pose(self, aruco_dict, max_tries: int = 3):

@@ -40,6 +40,7 @@ class PrintPoseCam:
 
         # transform to robot coords
         transformed = self.cam.transform_marker_points(raw_markers)
+        print(raw_markers)
         if not transformed:
             print("No transformation matrix loaded or error transforming.")
             return
@@ -50,7 +51,8 @@ class PrintPoseCam:
         for m in sorted_markers:
             mid = m["id"]
             pt: Point3D = m["point"]
-            # print(f"Marker {mid}: x={pt.x:.3f}, y={pt.y:.3f}, z={pt.z:.3f}")
+
+            print(f"Marker {mid}: x={pt.x:.3f}, y={pt.y:.3f}, z={pt.z:.3f}")
 
 def main():
     printer = PrintPoseCam()
