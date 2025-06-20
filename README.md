@@ -28,7 +28,8 @@ This project is organized into several key modules:
 
 ## Installation Guide
 
-> ⚠️ **Supported Python Version:**
+> [!WARNING] 
+> **Supported Python Version:**
 > This repository **requires Python 3.11**.
 > Python 3.12 and newer are **not supported**.
 > Please ensure your environment uses Python 3.11.
